@@ -63,7 +63,8 @@ def recommend(id):
     u.UserID, 
     u.nickname, 
     u.imageFile,
-    u.verify
+    u.verify,
+    u.dateBirth
     FROM user u
     LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = {id}) OR (m.user2ID = u.UserID AND m.user1ID = {id})
     LEFT JOIN blocked_chats b ON (b.user1ID = {id} AND b.user2ID = u.UserID) OR (b.user2ID = {id} AND b.user1ID = u.UserID)
@@ -89,7 +90,8 @@ def recommend(id):
         if user['imageFile']:
             recommended_users.at[index, 'imageFile'] = f"http://{request.host}/ai_v2/user/{user['imageFile']}"
 
-    return jsonify(recommended_users[['UserID', 'nickname', 'imageFile', 'verify']].to_dict(orient='records')), 200
+    return jsonify(recommended_users[['UserID', 'nickname', 'imageFile', 'verify', 'dateBirth']].to_dict(orient='records')), 200
+
 
 
 @app.route('/ai_v2/user/<filename>', methods=['GET'])
