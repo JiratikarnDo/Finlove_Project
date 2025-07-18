@@ -9,6 +9,9 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
+const jwt = require('jsonwebtoken');
+const SECRET_KEY = process.env.SECRET_KEY;
+
 const userService = require('./service');
 
 const app = express();
@@ -134,10 +137,22 @@ app.post('/api_v2/login', async function(req, res) {
 
             if (match) {
                 await db.promise().query("UPDATE user SET loginAttempt = 0, lastAttemptTime = NOW(), isActive = 1 WHERE userID = ?", [user.userID]);
+                const payload = {
+                    userID: user.userID,
+                    username: username
+                }
+
+                const token = jwt.sign(
+                    payload,
+                    SECRET_KEY, 
+                    { expiresIn: '1h' } // กำหนดให้ Token หมดอายุใน 1 ชั่วโมง
+                );
+
                 return res.send({ 
                     "message": "เข้าสู่ระบบสำเร็จ", 
-                    "status": true, 
-                    "userID": user.userID 
+                    "status": true,
+                    "userID": user.userID,
+                    "token": token
                 });
             } else {
                 const [updateResult] = await db.promise().query("UPDATE user SET loginAttempt = loginAttempt + 1, lastAttemptTime = NOW() WHERE userID = ?", [user.userID]);
