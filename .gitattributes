@@ -5,5 +5,4 @@
 dist/ linguist-generated
 build/ linguist-generated
 
-# หรือโฟลเดอร์ที่มีไลบรารีภายนอก (vendored code) ที่ไม่ต้องการนับ
 vendor/ linguist-vendored
