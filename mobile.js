@@ -1030,7 +1030,7 @@ app.get('/api_v2/wholike', (req, res) => {
     }
 
     const sql = `
-    SELECT DISTINCT u.userID, u.nickname, u.verify, u.imageFile
+    SELECT DISTINCT u.userID, u.nickname, u.verify, u.imageFile, u.DateBirth
     FROM userlike ul
     JOIN user u ON ul.likerID = u.userID
     WHERE ul.likedID = ?;
