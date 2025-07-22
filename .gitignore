@@ -1,1 +1,9 @@
 node_modules
+
+# Python virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+.env.*
