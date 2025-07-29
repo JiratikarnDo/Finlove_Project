@@ -1155,7 +1155,6 @@ app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
     }
 
     // 2. เพิ่มข้อมูล location (สมมุติว่ามีตารางชื่อ location)
-    // หากต้องการเพิ่มใน user ก็เปลี่ยนชื่อ table กับ column ตาม schema
     const [result] = await db.promise().query(
       'INSERT INTO location (userID, latitude, longitude) VALUES (?, ?, ?)',
       [userID, latitude, longitude]
