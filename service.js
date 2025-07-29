@@ -24,9 +24,9 @@ const userService = {
                 return callback(new Error("User not found"), null);
             }
             callback(null, results[0]);
-        });
+        });        
     }
-    // คุณสามารถเพิ่มฟังก์ชันอื่นๆ ที่เกี่ยวข้องกับ user หรือ database ที่นี่ได้
+    
 };
 
 module.exports = userService;

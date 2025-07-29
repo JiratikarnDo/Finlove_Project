@@ -1,13 +1,15 @@
 from flask import Flask, send_file, request, jsonify
 import mysql.connector as sql
+from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import os
 import warnings
+import numpy as np
 
-# Suppress warnings
+IMAGE_FOLDER = os.path.join(os.getcwd(), 'assets', 'user')
+
 warnings.filterwarnings("ignore")
 
-# Create the Flask app (API)
 app = Flask(__name__)
 
 # Connection settings (no persistent connection)
@@ -19,12 +21,76 @@ def create_connection():
         password=os.getenv("DATABASE_PASSWORD")
     )
 
-# Path to the folder where images are stored
-IMAGE_FOLDER = os.path.join(os.getcwd(), 'assets', 'user')
+# @app.route('/ai_v2/recommend/<int:id>', methods=['GET'])
+# def recommend(id):
+#     conn = create_connection()
+    
+#     sql_query = "SELECT * FROM userpreferences"
+#     x = pd.read_sql(sql_query, conn)
+    
+#     if 'UserID' not in x.columns or 'PreferenceID' not in x.columns:
+#         return jsonify({"error": "Data format error in userpreferences table"}), 500
+
+#     # Pivot table
+#     x = x.pivot_table(index='UserID', columns='PreferenceID', aggfunc='size', fill_value=0)
+
+#     # Check user exists
+#     if id not in x.index:
+#         return jsonify({"error": f"UserID {id} not found in preferences table"}), 404
+
+#     login_vec = x.loc[[id]]
+#     other_vecs = x.drop([id])
+
+#     # คำนวณ cosine similarity กับผู้ใช้คนอื่น ๆ
+#     similarities = cosine_similarity(login_vec, other_vecs)[0]
+
+#     # จำนวน K คนที่อยากแนะนำ (เช่น 10 คน)
+#     top_k = 10
+#     if len(similarities) < top_k:
+#         top_k = len(similarities)
+
+#     # หา userID ของ top-k similarity สูงสุด
+#     top_k_idx = np.argsort(similarities)[-top_k:][::-1]
+#     recommended_user_ids = other_vecs.index[top_k_idx].tolist()
+
+#     if not recommended_user_ids:
+#         return jsonify({"message": "No similar users found"}), 200
+
+#     recommended_user_ids_str = ', '.join(map(str, recommended_user_ids))
+    
+#     sql_query = f'''
+#     SELECT 
+#       u.UserID, 
+#       u.nickname, 
+#       u.imageFile,
+#       u.verify,
+#       u.dateBirth
+#     FROM user u
+#     LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = {id}) OR (m.user2ID = u.UserID AND m.user1ID = {id})
+#     LEFT JOIN blocked_chats b ON (b.user1ID = {id} AND b.user2ID = u.UserID) OR (b.user2ID = {id} AND b.user1ID = u.UserID)
+#     LEFT JOIN userlike l ON (l.likerID = {id} AND l.likedID = u.UserID)
+#     WHERE u.UserID IN ({recommended_user_ids_str})
+#       AND m.matchID IS NULL
+#       AND (b.isBlocked IS NULL OR b.isBlocked = 0)
+#       AND l.likedID IS NULL
+#       AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = {id})  
+#       AND u.goalID = (SELECT goalID FROM user WHERE UserID = {id})  
+#     ;
+#     '''
+
+#     recommended_users = pd.read_sql(sql_query, conn)
+#     conn.close()
+
+#     for index, user in recommended_users.iterrows():
+#         if user['imageFile']:
+#             recommended_users.at[index, 'imageFile'] = f"http://{request.host}/ai_v2/user/{user['imageFile']}"
+
+#     return jsonify(recommended_users[['UserID', 'nickname', 'imageFile', 'verify', 'dateBirth']].to_dict(orient='records')), 200
+
 
 @app.route('/ai_v2/recommend/<int:id>', methods=['GET'])
 def recommend(id):
-    # สร้างการเชื่อมต่อใหม่ทุกครั้งที่เรียกใช้งาน
+
     conn = create_connection()
     
     # ดึงข้อมูลใหม่จากตาราง userpreferences ทุกครั้งที่มีการเรียกใช้งาน
@@ -43,8 +109,8 @@ def recommend(id):
         return jsonify({"error": f"UserID {id} not found in preferences table"}), 404
 
     # แยกข้อมูลสำหรับผู้ใช้ที่ล็อกอินและผู้ใช้อื่น ๆ
-    x_login_user = x.loc[[id]]  # ข้อมูลผู้ใช้ที่ล็อกอิน
-    x_other_users = x.drop([id])  # ข้อมูลผู้ใช้อื่น ๆ
+    x_login_user = x.loc[[id]]
+    x_other_users = x.drop([id])
 
     # ตรวจสอบความเข้ากันของ preferences อย่างน้อย 1 รายการ
     recommended_user_ids = []
@@ -91,7 +157,6 @@ def recommend(id):
             recommended_users.at[index, 'imageFile'] = f"http://{request.host}/ai_v2/user/{user['imageFile']}"
 
     return jsonify(recommended_users[['UserID', 'nickname', 'imageFile', 'verify', 'dateBirth']].to_dict(orient='records')), 200
-
 
 
 @app.route('/ai_v2/user/<filename>', methods=['GET'])

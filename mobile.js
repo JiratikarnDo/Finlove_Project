@@ -8,14 +8,13 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
-
 const jwt = require('jsonwebtoken');
 const SECRET_KEY = process.env.SECRET_KEY;
-
 const userService = require('./service');
-
 const app = express();
 const saltRounds = 10;
+const bodyParser = require('body-parser');
+
 
 
 const storage = multer.diskStorage({
@@ -91,6 +90,23 @@ const loginLimiter = rateLimit({
     max: 5, // Limit each IP to 5 requests per windowMs
     message: "Too many login attempts from this IP, please try again after 10 seconds"
 }); 
+
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers['authorization'];
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    try {
+      const decoded = jwt.verify(token, SECRET_KEY);
+      req.user = decoded; // แนบข้อมูลจาก JWT ไว้ใน req.user
+      next();
+    } catch (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+  } else {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+}
 
 
 
@@ -1121,6 +1137,44 @@ app.post('/api_v2/check_match', (req, res) => {
         }
     });
 });
+
+// API add-location คำนวณรัดติจูด ลองติจูด
+app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
+  const userID = req.user.userID;
+  const { latitude, longitude } = req.body;
+
+  if (!latitude || !longitude) {
+    return res.status(400).json({ error: 'Latitude and Longitude are required' });
+  }
+
+  try {
+    // 1. ตรวจสอบว่า User มีในฐานข้อมูลหรือไม่
+    const [users] = await db.promise().query('SELECT * FROM user WHERE userID = ?', [userID]);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // 2. เพิ่มข้อมูล location (สมมุติว่ามีตารางชื่อ location)
+    // หากต้องการเพิ่มใน user ก็เปลี่ยนชื่อ table กับ column ตาม schema
+    const [result] = await db.promise().query(
+      'INSERT INTO location (userID, latitude, longitude) VALUES (?, ?, ?)',
+      [userID, latitude, longitude]
+    );
+
+    res.status(201).json({
+      message: 'ข้อมูลตำแหน่งถูกเพิ่มสำเร็จ',
+      locationID: result.insertId,
+      userID,
+      latitude,
+      longitude
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message || 'ไม่สามารถเพิ่มข้อมูลได้' });
+  }
+});
+
 
 
 
