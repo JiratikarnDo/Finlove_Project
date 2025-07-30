@@ -1,4 +1,5 @@
 node_modules
+<<<<<<< HEAD
 
 # Python virtual environment
 venv/
@@ -7,3 +8,5 @@ venv/
 # Environment variables
 .env
 .env.*
+=======
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50

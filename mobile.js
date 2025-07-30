@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
+<<<<<<< HEAD
 const jwt = require('jsonwebtoken');
 const SECRET_KEY = process.env.SECRET_KEY;
 const userService = require('./service');
@@ -16,18 +17,31 @@ const saltRounds = 10;
 const bodyParser = require('body-parser');
 
 
+=======
+
+const app = express();
+const saltRounds = 10;
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'assets/user/');  
     },
     filename: function (req, file, cb) {
+<<<<<<< HEAD
         cb(null, file.originalname);
+=======
+        cb(null, file.originalname);  // ใช้ชื่อไฟล์เดิม
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
     }
 });
 
 
+<<<<<<< HEAD
 
+=======
+///////////////////////////////////////////////////////////////////////////////
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 //////////////////////////////// ลบส่วนนี้หาก manual ////////////////////////////
 //const cors = require('cors');
 
@@ -38,11 +52,16 @@ const storage = multer.diskStorage({
     //credentials: true  // หากต้องการให้ส่ง cookies หรือ header การยืนยัน
 //}));
 ///////////////////////////////////////////////////////////////////////////////
+<<<<<<< HEAD
 
+=======
+///////////////////////////////////////////////////////////////////////////////
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
 
 const upload = multer({ storage: storage });
 
+<<<<<<< HEAD
 const db = mysql.createConnection({
     host: process.env.DATABASE_HOST,
     user: process.env.DATABASE_USER,
@@ -50,6 +69,23 @@ const db = mysql.createConnection({
     database: process.env.DATABASE_NAME
 });
 
+=======
+// const db = mysql.createConnection({
+//     host: process.env.DATABASE_HOST,
+//     user: process.env.DATABASE_user,
+//     password: process.env.DATABASE_PASSWORD,
+//     database: process.env.DATABASE_NAME
+// });
+
+const db = mysql.createConnection({
+    host: 'localhost',        
+    user: 'root',             
+    password: '1234',         
+    database: 'finlove'       
+});
+
+// Configurations for mobile.js
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 const config = {
     secretKey: 'UX23Y24%@&2aMb',
     serverPort: 8501,
@@ -91,6 +127,7 @@ const loginLimiter = rateLimit({
     message: "Too many login attempts from this IP, please try again after 10 seconds"
 }); 
 
+<<<<<<< HEAD
 function authenticateJWT(req, res, next) {
   const authHeader = req.headers['authorization'];
 
@@ -108,6 +145,8 @@ function authenticateJWT(req, res, next) {
   }
 }
 
+=======
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
 
 ///////////////////////////////////////////////////////////// Login Logout /////////////////////////////////////////////////////////////
@@ -153,6 +192,7 @@ app.post('/api_v2/login', async function(req, res) {
 
             if (match) {
                 await db.promise().query("UPDATE user SET loginAttempt = 0, lastAttemptTime = NOW(), isActive = 1 WHERE userID = ?", [user.userID]);
+<<<<<<< HEAD
                 const payload = {
                     userID: user.userID,
                     username: username
@@ -169,6 +209,12 @@ app.post('/api_v2/login', async function(req, res) {
                     "status": true,
                     "userID": user.userID,
                     "token": token
+=======
+                return res.send({ 
+                    "message": "เข้าสู่ระบบสำเร็จ", 
+                    "status": true, 
+                    "userID": user.userID 
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
                 });
             } else {
                 const [updateResult] = await db.promise().query("UPDATE user SET loginAttempt = loginAttempt + 1, lastAttemptTime = NOW() WHERE userID = ?", [user.userID]);
@@ -1037,7 +1083,10 @@ app.post('/api_v2/dislike', (req, res) => {
 });
 
 // ดึงผู้ใช้ที่เคยมากด Like user คนนี้ !!!ใหม่
+<<<<<<< HEAD
 debugger
+=======
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 app.get('/api_v2/wholike', (req, res) => {
     const userID = req.query.userID;  // userID ที่ล็อกอินอยู่ ต้องส่งมาจาก client
 
@@ -1063,6 +1112,7 @@ app.get('/api_v2/wholike', (req, res) => {
     });
 });
 
+<<<<<<< HEAD
 // API user Detail
 app.post('/api_v2/user/detail', (req, res) => {
     const { userID } = req.body;
@@ -1083,6 +1133,8 @@ app.post('/api_v2/user/detail', (req, res) => {
         res.json(userData);
     });
 });
+=======
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
 
 // API Check Match
@@ -1138,6 +1190,7 @@ app.post('/api_v2/check_match', (req, res) => {
     });
 });
 
+<<<<<<< HEAD
 // API add-location คำนวณรัดติจูด ลองติจูด
 debugger
 app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
@@ -1187,6 +1240,8 @@ app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
 });
 
 
+=======
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
 
 ///////////////////////////////////////////////////////////// Chat /////////////////////////////////////////////////////////////
