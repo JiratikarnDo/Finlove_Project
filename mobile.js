@@ -1139,9 +1139,20 @@ app.post('/api_v2/check_match', (req, res) => {
 });
 
 // API add-location คำนวณรัดติจูด ลองติจูด
+debugger
 app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
   const userID = req.user.userID;
   const { latitude, longitude } = req.body;
+
+  // ===== เพิ่ม log ตรงนี้ =====
+  console.log('[add-location]', {
+    userID,
+    latitude,
+    longitude,
+    body: req.body,
+    headers: req.headers
+  });
+  // ===========================
 
   if (!latitude || !longitude) {
     return res.status(400).json({ error: 'Latitude and Longitude are required' });
