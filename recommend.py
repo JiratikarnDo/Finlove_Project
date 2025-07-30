@@ -1,5 +1,6 @@
 from flask import Flask, send_file, request, jsonify
 import mysql.connector as sql
+<<<<<<< HEAD
 from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 import os
@@ -10,11 +11,22 @@ IMAGE_FOLDER = os.path.join(os.getcwd(), 'assets', 'user')
 
 warnings.filterwarnings("ignore")
 
+=======
+import pandas as pd
+import os
+import warnings
+
+# Suppress warnings
+warnings.filterwarnings("ignore")
+
+# Create the Flask app (API)
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 app = Flask(__name__)
 
 # Connection settings (no persistent connection)
 def create_connection():
     return sql.connect(
+<<<<<<< HEAD
         host=os.getenv('DATABASE_HOST'),
         database=os.getenv("DATABASE_NAME"),
         user=os.getenv("DATABASE_USER"),
@@ -91,6 +103,20 @@ def create_connection():
 @app.route('/ai_v2/recommend/<int:id>', methods=['GET'])
 def recommend(id):
 
+=======
+        host="localhost",
+        database="finlove",
+        user="root",
+        password="1234"
+    )
+
+# Path to the folder where images are stored
+IMAGE_FOLDER = os.path.join(os.getcwd(), 'assets', 'user')
+
+@app.route('/ai_v2/recommend/<int:id>', methods=['GET'])
+def recommend(id):
+    # สร้างการเชื่อมต่อใหม่ทุกครั้งที่เรียกใช้งาน
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
     conn = create_connection()
     
     # ดึงข้อมูลใหม่จากตาราง userpreferences ทุกครั้งที่มีการเรียกใช้งาน
@@ -109,8 +135,13 @@ def recommend(id):
         return jsonify({"error": f"UserID {id} not found in preferences table"}), 404
 
     # แยกข้อมูลสำหรับผู้ใช้ที่ล็อกอินและผู้ใช้อื่น ๆ
+<<<<<<< HEAD
     x_login_user = x.loc[[id]]
     x_other_users = x.drop([id])
+=======
+    x_login_user = x.loc[[id]]  # ข้อมูลผู้ใช้ที่ล็อกอิน
+    x_other_users = x.drop([id])  # ข้อมูลผู้ใช้อื่น ๆ
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 
     # ตรวจสอบความเข้ากันของ preferences อย่างน้อย 1 รายการ
     recommended_user_ids = []
@@ -159,6 +190,10 @@ def recommend(id):
     return jsonify(recommended_users[['UserID', 'nickname', 'imageFile', 'verify', 'dateBirth']].to_dict(orient='records')), 200
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
 @app.route('/ai_v2/user/<filename>', methods=['GET'])
 def get_user_image(filename):
     # Full path to the image file
@@ -174,4 +209,8 @@ def get_user_image(filename):
 
 # Create Web server
 if __name__ == '__main__':
+<<<<<<< HEAD
     app.run(debug=True, host='0.0.0.0', port=6502)
+=======
+    app.run(debug=True, host='0.0.0.0', port=6502)
+>>>>>>> b987b609269b6b5f40bfbb3bbd0bc4220376dc50
