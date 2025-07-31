@@ -314,8 +314,32 @@ def recommend(id):
     ORDER BY distance ASC;
     '''
 
-    # ช่วงที่ 2: ผู้ใช้ที่มีนิสัยตรงกับเรา
+    # ช่วงที่ 2: ผู้ใช้ที่อยู่ใกล้เคียงเรา
     sql_query2 = f'''
+    SELECT 
+    u.UserID, 
+    u.nickname, 
+    u.imageFile,
+    u.verify,
+    u.dateBirth
+    FROM user u
+    LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = {id}) OR (m.user2ID = u.UserID AND m.user1ID = {id})
+    LEFT JOIN blocked_chats b ON (b.user1ID = {id} AND b.user2ID = u.UserID) OR (b.user2ID = {id} AND b.user1ID = u.UserID)
+    LEFT JOIN userlike l ON (l.likerID = {id} AND l.likedID = u.UserID)
+    WHERE u.UserID IN ({nearby_users_str}) 
+    AND m.matchID IS NULL
+    AND (b.isBlocked IS NULL OR b.isBlocked = 0)
+    AND l.likedID IS NULL
+    AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = {id})  
+    AND u.goalID = (SELECT goalID FROM user WHERE UserID = {id})  
+    AND (
+        (SELECT COUNT(*) FROM userpreferences p WHERE p.UserID = u.UserID AND p.PreferenceID IN 
+        (SELECT PreferenceID FROM userpreferences WHERE UserID = {id})) >= 1
+    );
+    '''
+
+    # ช่วงที่ 3: ผู้ใช้ที่มีนิสัยตรงกับเรา
+    sql_query3 = f'''
     SELECT 
     u.UserID, 
     u.nickname, 
@@ -345,10 +369,13 @@ def recommend(id):
     recommended_users_2 = pd.read_sql(sql_query2, conn)
     recommended_users_2['source'] = 'sql_query2'
 
+    recommended_users_3 = pd.read_sql(sql_query3, conn)
+    recommended_users_3['source'] = 'sql_query3'
+
     conn.close()
 
     # รวมทั้งสองผลลัพธ์และกรองข้อมูลซ้ำ
-    recommended_users = pd.concat([recommended_users_1, recommended_users_2]).drop_duplicates(subset='UserID')
+    recommended_users = pd.concat([recommended_users_1, recommended_users_2, recommended_users_3]).drop_duplicates(subset='UserID')
 
     # ปรับเส้นทางของ imageFile เพื่อให้ชี้ไปที่ API สำหรับโหลดรูปภาพ
     for index, user in recommended_users.iterrows():
