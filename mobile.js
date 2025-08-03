@@ -62,7 +62,7 @@ db.connect();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/assets/user', express.static(path.join(__dirname, 'assets/user')));
+app.use('/assets/user', express.static(path.join(__dirname, 'web', 'front-end', 'assets', 'employee')));
 
 
 // Nodemailer Transporter Configuration
@@ -347,7 +347,7 @@ app.post('/api_v2/request-pin', async (req, res) => {
             subject: 'รหัส PIN สำหรับรีเซ็ตรหัสผ่าน',
             text: `รหัส PIN ของคุณคือ: ${pinCode}. รหัสนี้จะหมดอายุใน 1 ชั่วโมง.`
         };
-
+_
         await transporter.sendMail(mailOptions);
 
         res.send("PIN ถูกส่งไปยังอีเมลของคุณ");
@@ -463,7 +463,7 @@ app.get('/api_v2/user', function(req, res) {
 
 // API Show All user Image
 app.get('/api_v2/user/image/:filename', function(req, res) {
-    const filepath = path.join(__dirname, 'assets/user', req.params.filename);
+    const filepath = path.join(__dirname, 'web', 'front-end', 'assets', 'employee', req.params.filename);
     res.sendFile(filepath, err => {
         if (err) res.status(404).json({ error: "File not found" });
     });
@@ -777,7 +777,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             currentImageFile = newFileName;
 
             if (currentuser.imageFile && currentuser.imageFile !== '') {
-                const oldImagePath = path.join(__dirname, 'assets/user', currentuser.imageFile);
+                const oldImagePath = path.join(__dirname, 'web', 'front-end', 'assets', 'employee', currentuser.imageFile);
                 if (fs.existsSync(oldImagePath)) {
                     fs.unlinkSync(oldImagePath);
                 }
