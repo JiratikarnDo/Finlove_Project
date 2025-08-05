@@ -462,6 +462,7 @@ app.get('/api_v2/user', function(req, res) {
 
 // API Show All user Image
 app.get('/api_v2/user/image/:filename', function(req, res) {
+    //ดึงรูปให้ตรง path
     const filepath = path.join(__dirname, 'assets', 'user', req.params.filename);
     res.sendFile(filepath, err => {
         if (err) res.status(404).json({ error: "File not found" });
