@@ -278,7 +278,7 @@ def recommend(id):
 
     recommended_user_ids_str = ', '.join(map(str, recommended_user_ids))
 
-    # ช่วงที่ 1: ผู้ใช้ที่อยู่ในระยะและมีนิสัยตรงกับเรา
+    # ช่วงที่ 1: ผู้ใช้ที่อยู่ในระยะและมีนิสัยตรงกับเรา แกัไขใหม่
     sql_query1 = f'''
     SELECT 
     u.UserID, 
@@ -302,7 +302,7 @@ def recommend(id):
     LEFT JOIN userlike l2 ON (l2.likerID = {id} AND l2.likedID = u.UserID)
     WHERE u.UserID IN ({recommended_user_ids_str}) 
     AND u.UserID IN ({nearby_users_str}) 
-    AND u.UserID != {id}
+    AND u.UserID != {id} // ไม่รวมผู้ใช้ที่ล็อกอิน
     AND m.matchID IS NULL
     AND (b.isBlocked IS NULL OR b.isBlocked = 0)
     AND l2.likedID IS NULL
