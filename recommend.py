@@ -278,7 +278,7 @@ def recommend(id):
 
     recommended_user_ids_str = ', '.join(map(str, recommended_user_ids))
 
-    # ช่วงที่ 1: ผู้ใช้ที่อยู่ในระยะและมีนิสัยตรงกับเรา แกัไขใหม่
+    # ช่วงที่ 1: ผู้ใช้ที่อยู่ในระยะและมีนิสัยตรงกับเรา แกัไขใหม่อีกรอบ
     sql_query1 = f'''
     SELECT 
     u.UserID, 
