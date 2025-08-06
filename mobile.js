@@ -1058,6 +1058,29 @@ app.get('/api_v2/wholike', (req, res) => {
     });
 });
 
+app.get('/api_v2/likedbyme', (req, res) => {
+    const userID = req.query.userID;
+
+    if (!userID) {
+        return res.status(400).json({ message: "กรุณาส่ง userID มาใน query string" });
+    }
+
+    const sql = `
+        SELECT DISTINCT u.userID, u.nickname, u.verify, u.imageFile, u.DateBirth
+        FROM userlike ul
+        JOIN user u ON ul.likedID = u.userID
+        WHERE ul.likerID = ?;
+    `;
+
+    db.query(sql, [userID], (err, results) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูล" });
+        }
+        res.json(results); // ส่ง array รายชื่อคนที่เราเคยไปกดไลค์
+    });
+});
+
 // API user Detail
 app.post('/api_v2/user/detail', (req, res) => {
     const { userID } = req.body;

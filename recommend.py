@@ -302,7 +302,7 @@ def recommend(id):
     LEFT JOIN userlike l2 ON (l2.likerID = {id} AND l2.likedID = u.UserID)
     WHERE u.UserID IN ({recommended_user_ids_str}) 
     AND u.UserID IN ({nearby_users_str}) 
-    AND u.UserID != {id} // ไม่รวมผู้ใช้ที่ล็อกอิน
+    AND u.UserID != {id}  
     AND m.matchID IS NULL
     AND (b.isBlocked IS NULL OR b.isBlocked = 0)
     AND l2.likedID IS NULL
