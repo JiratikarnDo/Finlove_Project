@@ -302,6 +302,7 @@ def recommend(id):
     LEFT JOIN userlike l2 ON (l2.likerID = {id} AND l2.likedID = u.UserID)
     WHERE u.UserID IN ({recommended_user_ids_str}) 
     AND u.UserID IN ({nearby_users_str}) 
+    AND u.UserID != {id}
     AND m.matchID IS NULL
     AND (b.isBlocked IS NULL OR b.isBlocked = 0)
     AND l2.likedID IS NULL
@@ -327,6 +328,7 @@ def recommend(id):
     LEFT JOIN blocked_chats b ON (b.user1ID = {id} AND b.user2ID = u.UserID) OR (b.user2ID = {id} AND b.user1ID = u.UserID)
     LEFT JOIN userlike l ON (l.likerID = {id} AND l.likedID = u.UserID)
     WHERE u.UserID IN ({nearby_users_str}) 
+    AND u.UserID != {id}
     AND m.matchID IS NULL
     AND (b.isBlocked IS NULL OR b.isBlocked = 0)
     AND l.likedID IS NULL
@@ -351,6 +353,7 @@ def recommend(id):
     LEFT JOIN blocked_chats b ON (b.user1ID = {id} AND b.user2ID = u.UserID) OR (b.user2ID = {id} AND b.user1ID = u.UserID)
     LEFT JOIN userlike l ON (l.likerID = {id} AND l.likedID = u.UserID)
     WHERE u.UserID IN ({recommended_user_ids_str}) 
+    AND u.UserID != {id}
     AND m.matchID IS NULL
     AND (b.isBlocked IS NULL OR b.isBlocked = 0)
     AND l.likedID IS NULL
