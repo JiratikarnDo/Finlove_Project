@@ -22,10 +22,10 @@ require('dotenv').config();  // ต้องแน่ใจว่าได้โ
 
 // Database(MySql) configuration
 const db = mysql.createConnection({
-    host: proocess.env.DATABASE_HOST,
-    user: proocess.env.DATABASE_USER,
-    password: proocess.env.DATABASE_PASSWORD,
-    database: proocess.env.DATABASE_NAME,
+    host: "localhost",
+    user: "root",
+    password: "pou59874145",
+    database: "finlove"
 });
 
 db.connect((err) => {
@@ -35,7 +35,6 @@ db.connect((err) => {
     }
     console.log('Connected to the database');
 });
-
 
 // Middleware (Body parser)
 app.use(express.json());
@@ -47,20 +46,27 @@ const rateLimit = require('express-rate-limit');
 
 const limiter = rateLimit({
     windowMs: 60 * 1000, // 1 นาที
-    max: 100, // จำกัดคำขอ 100 ครั้งต่อนาที
+    max: 300, // จำกัดคำขอ 100 ครั้งต่อนาที
     message: { message: "Too many requests, please try again later.", status: false }
 });
 
 app.use(limiter); // นำไปใช้กับทุกเส้นทาง
 
+// ====== เพิ่มตัวแปรกลางสำหรับ assets ======
+const ASSETS_USER_PATH = path.join(__dirname, '..', 'assets', 'user');
+const ASSETS_EMPLOYEE_PATH = path.join(__dirname, '..', 'assets', 'employee');
 
 // Static assets
-app.use('/assets/user', express.static(path.join(__dirname, 'assets/user')));
+app.use('/assets/user', express.static(ASSETS_USER_PATH));
+app.use('/assets/employee', express.static(ASSETS_EMPLOYEE_PATH));
 
 // Multer configuration for uploading files
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const uploadPath = path.join(__dirname, 'assets/user');
+        let uploadPath = ASSETS_USER_PATH;
+        if (req.baseUrl.includes('employee')) {
+            uploadPath = ASSETS_EMPLOYEE_PATH;
+        }
         if (!fs.existsSync(uploadPath)) {
             fs.mkdirSync(uploadPath, { recursive: true });
         }
@@ -99,7 +105,9 @@ function query(sql, params) {
 
 
 ////////////////////////////////////////////////////////////////////////// Login ////////////////////////////////////////////////////////////////////////////////////
-    
+
+
+
 //Login
 app.post('/api/login', async function(req, res) {
     const {username, password} = req.body;
@@ -187,7 +195,6 @@ app.post('/api/logout', (req, res) => {
 });
 
 
-
 ////////////////////////////////////////////////////////////////////////// User ////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -244,7 +251,6 @@ app.get('/api/userreport', async function(req, res){
 });
 
 
-
 // Show a user Profile
 app.get('/api/profile/:id', async function(req, res) {
     const userID = req.params.id;  // User ID of the profile being viewed
@@ -299,16 +305,32 @@ app.get('/api/profile/:id', async function(req, res) {
 
 
 
-
 //Show a user image
 app.get('/api/user/image/:filename', function(req, res) {        
-    const filepath = path.join(__dirname, 'assets/user', req.params.filename);
+    const filepath = path.join(ASSETS_USER_PATH, req.params.filename);
 
     // Check if the file exists
     fs.access(filepath, fs.constants.F_OK, (err) => {
         if (err) {
             // File does not exist, send a default image
-            const defaultImage = path.join(__dirname, 'assets/user/default.jpg');
+            const defaultImage = path.join(ASSETS_USER_PATH);
+            return res.sendFile(defaultImage); // Send default image if file not found
+        }
+        
+        // File exists, send the requested file
+        res.sendFile(filepath);
+    });
+});
+
+// Show employee image
+app.get('/api/employee/image/:filename', function(req, res) {        
+    const filepath = path.join(ASSETS_EMPLOYEE_PATH, req.params.filename);
+
+    // Check if the file exists
+    fs.access(filepath, fs.constants.F_OK, (err) => {
+        if (err) {
+            // File does not exist, send a default image
+            const defaultImage = path.join(ASSETS_EMPLOYEE_PATH, 'default.jpg');
             return res.sendFile(defaultImage); // Send default image if file not found
         }
         
@@ -340,11 +362,11 @@ app.put('/api/user/:id', async function(req, res) {
         if (req.files && req.files.profileImage) {
             const image = req.files.profileImage;
             profileImage = Date.now() + '-' + image.name; // ตั้งชื่อไฟล์ใหม่
-            const uploadPath = path.join(__dirname, 'assets/user', profileImage);
-
+            const uploadPath = path.join(ASSETS_USER_PATH, profileImage);
+            
             // ลบรูปภาพเก่าหากมี
             if (user.imageFile) {
-                const oldImagePath = path.join(__dirname, 'assets/user', user.imageFile);
+                const oldImagePath = path.join(ASSETS_USER_PATH, user.imageFile);
                 fs.access(oldImagePath, fs.constants.F_OK, (err) => {
                     if (!err) {
                         fs.unlink(oldImagePath, (err) => {
@@ -495,8 +517,7 @@ app.delete('/api/user/:id', async function (req, res) {
         // ตรวจสอบและลบไฟล์ภาพของผู้ใช้
         const [userImageResult] = await db.promise().query(sqlGetUserImage, [id]);
         if (userImageResult.length > 0 && userImageResult[0].imageFile) {
-            const imagePath = path.join(__dirname, 'assets', 'user', userImageResult[0].imageFile);
-            fs.unlink(imagePath, (err) => {
+        const imagePath = path.join(ASSETS_USER_PATH, userImageResult[0].imageFile);            fs.unlink(imagePath, (err) => {
                 if (err) console.error("Error deleting user image file:", err);
                 else console.log("User image file deleted successfully");
             });
@@ -581,24 +602,6 @@ app.get('/api/employee/:id', async function(req, res) {
 });
 
 
-// Show employee image
-app.get('/api/employee/image/:filename', function(req, res) {        
-    const filepath = path.join(__dirname, 'assets/employee', req.params.filename);
-
-    // Check if the file exists
-    fs.access(filepath, fs.constants.F_OK, (err) => {
-        if (err) {
-            // File does not exist, send a default image
-            const defaultImage = path.join(__dirname, 'assets/employee/default.jpg');
-            return res.sendFile(defaultImage); // Send default image if file not found
-        }
-        
-        // File exists, send the requested file
-        res.sendFile(filepath);
-    });
-});
-
-
 // Generate a password
 function generateRandomPassword(length) {
     return crypto.randomBytes(length)
@@ -643,7 +646,7 @@ app.post('/api/employee', async function (req, res) {
                     if (req.files && req.files.profileImage) {
                         const image = req.files.profileImage;
                         profileImage = Date.now() + '-' + image.name;
-                        const uploadPath = path.join(__dirname, 'assets/employee', profileImage);
+                        const uploadPath = path.join(ASSETS_EMPLOYEE_PATH, profileImage);
 
                         // บันทึกไฟล์ไปที่ assets/employee
                         image.mv(uploadPath, (err) => {
@@ -712,12 +715,10 @@ app.put('/api/employee/:id', async function(req, res) {
             if (req.files && req.files.profileImage) {
                 const image = req.files.profileImage;
                 profileImage = Date.now() + '-' + image.name;
-                const uploadPath = path.join(__dirname, 'assets/employee', profileImage);
-
+                const uploadPath = path.join(ASSETS_EMPLOYEE_PATH, profileImage);
                 // ลบรูปภาพเก่าหากมี
                 if (employee.imageFile) {
-                    const oldImagePath = path.join(__dirname, 'assets/employee', employee.imageFile);
-                    fs.access(oldImagePath, fs.constants.F_OK, (err) => {
+                const oldImagePath = path.join(ASSETS_EMPLOYEE_PATH, employee.imageFile);                    fs.access(oldImagePath, fs.constants.F_OK, (err) => {
                         if (!err) {
                             // ลบไฟล์เก่า
                             fs.unlink(oldImagePath, (err) => {
@@ -861,8 +862,7 @@ app.delete('/api/employee/:id', async function(req, res) {
         // ลบไฟล์ภาพของพนักงานหากมีอยู่
         const [employeeImageResult] = await db.promise().query(sqlGetEmployeeImage, [empID]);
         if (employeeImageResult.length > 0 && employeeImageResult[0].imageFile) {
-            const imagePath = path.join(__dirname, 'assets', 'employee', employeeImageResult[0].imageFile);
-            fs.unlink(imagePath, (err) => {
+            const imagePath = path.join(ASSETS_EMPLOYEE_PATH, employeeImageResult[0].imageFile);            fs.unlink(imagePath, (err) => {
                 if (err) console.error("Error deleting employee image file:", err);
                 else console.log("Employee image file deleted successfully");
             });

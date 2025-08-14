@@ -8,14 +8,13 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
+
 const jwt = require('jsonwebtoken');
 const SECRET_KEY = process.env.SECRET_KEY;
 const userService = require('./service');
 const app = express();
 const saltRounds = 10;
 const bodyParser = require('body-parser');
-
-
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -25,7 +24,6 @@ const storage = multer.diskStorage({
         cb(null, file.originalname);
     }
 });
-
 
 
 //////////////////////////////// ลบส่วนนี้หาก manual ////////////////////////////
@@ -38,7 +36,6 @@ const storage = multer.diskStorage({
     //credentials: true  // หากต้องการให้ส่ง cookies หรือ header การยืนยัน
 //}));
 ///////////////////////////////////////////////////////////////////////////////
-
 
 
 const upload = multer({ storage: storage });
@@ -65,7 +62,7 @@ db.connect();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/assets/user', express.static(path.join(__dirname, 'assets/user')));
+app.use('/assets/user', express.static(path.join(__dirname, 'web', 'front-end', 'assets', 'employee')));
 
 
 // Nodemailer Transporter Configuration
@@ -218,7 +215,6 @@ app.post('/api_v2/logout/:id', async (req, res) => {
 });
 
 
-
 ///////////////////////////////////////////////////////////// register /////////////////////////////////////////////////////////////
 
 
@@ -313,8 +309,6 @@ app.post('/api_v2/register8', upload.single('imageFile'), async function(req, re
 });
 
 
-
-
 ///////////////////////////////////////////////////////////// Forgot Password /////////////////////////////////////////////////////////////
 
 
@@ -352,7 +346,7 @@ app.post('/api_v2/request-pin', async (req, res) => {
             subject: 'รหัส PIN สำหรับรีเซ็ตรหัสผ่าน',
             text: `รหัส PIN ของคุณคือ: ${pinCode}. รหัสนี้จะหมดอายุใน 1 ชั่วโมง.`
         };
-
+_
         await transporter.sendMail(mailOptions);
 
         res.send("PIN ถูกส่งไปยังอีเมลของคุณ");
@@ -468,12 +462,12 @@ app.get('/api_v2/user', function(req, res) {
 
 // API Show All user Image
 app.get('/api_v2/user/image/:filename', function(req, res) {
-    const filepath = path.join(__dirname, 'assets/user', req.params.filename);
+    //ดึงรูปให้ตรง path
+    const filepath = path.join(__dirname, 'assets', 'user', req.params.filename);
     res.sendFile(filepath, err => {
         if (err) res.status(404).json({ error: "File not found" });
     });
 });
-
 
 
 // API View Profile
@@ -782,7 +776,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             currentImageFile = newFileName;
 
             if (currentuser.imageFile && currentuser.imageFile !== '') {
-                const oldImagePath = path.join(__dirname, 'assets/user', currentuser.imageFile);
+                const oldImagePath = path.join(__dirname, 'web', 'front-end', 'assets', 'employee', currentuser.imageFile);
                 if (fs.existsSync(oldImagePath)) {
                     fs.unlinkSync(oldImagePath);
                 }
@@ -1037,6 +1031,7 @@ app.post('/api_v2/dislike', (req, res) => {
 });
 
 // ดึงผู้ใช้ที่เคยมากด Like user คนนี้ !!!ใหม่
+
 debugger
 app.get('/api_v2/wholike', (req, res) => {
     const userID = req.query.userID;  // userID ที่ล็อกอินอยู่ ต้องส่งมาจาก client
@@ -1063,6 +1058,29 @@ app.get('/api_v2/wholike', (req, res) => {
     });
 });
 
+app.get('/api_v2/likedbyme', (req, res) => {
+    const userID = req.query.userID;
+
+    if (!userID) {
+        return res.status(400).json({ message: "กรุณาส่ง userID มาใน query string" });
+    }
+
+    const sql = `
+        SELECT DISTINCT u.userID, u.nickname, u.verify, u.imageFile, u.DateBirth
+        FROM userlike ul
+        JOIN user u ON ul.likedID = u.userID
+        WHERE ul.likerID = ?;
+    `;
+
+    db.query(sql, [userID], (err, results) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูล" });
+        }
+        res.json(results); // ส่ง array รายชื่อคนที่เราเคยไปกดไลค์
+    });
+});
+
 // API user Detail
 app.post('/api_v2/user/detail', (req, res) => {
     const { userID } = req.body;
@@ -1083,6 +1101,7 @@ app.post('/api_v2/user/detail', (req, res) => {
         res.json(userData);
     });
 });
+
 
 
 // API Check Match
@@ -1139,9 +1158,20 @@ app.post('/api_v2/check_match', (req, res) => {
 });
 
 // API add-location คำนวณรัดติจูด ลองติจูด
+debugger
 app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
   const userID = req.user.userID;
   const { latitude, longitude } = req.body;
+
+  // ===== เพิ่ม log ตรงนี้ =====
+  console.log('[add-location]', {
+    userID,
+    latitude,
+    longitude,
+    body: req.body,
+    headers: req.headers
+  });
+  // ===========================
 
   if (!latitude || !longitude) {
     return res.status(400).json({ error: 'Latitude and Longitude are required' });
@@ -1155,7 +1185,6 @@ app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
     }
 
     // 2. เพิ่มข้อมูล location (สมมุติว่ามีตารางชื่อ location)
-    // หากต้องการเพิ่มใน user ก็เปลี่ยนชื่อ table กับ column ตาม schema
     const [result] = await db.promise().query(
       'INSERT INTO location (userID, latitude, longitude) VALUES (?, ?, ?)',
       [userID, latitude, longitude]
@@ -1174,8 +1203,6 @@ app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
     res.status(500).json({ error: error.message || 'ไม่สามารถเพิ่มข้อมูลได้' });
   }
 });
-
-
 
 
 ///////////////////////////////////////////////////////////// Chat /////////////////////////////////////////////////////////////
