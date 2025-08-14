@@ -51,13 +51,17 @@ def recommend(id):
         return jsonify({"error": f"UserID {id} not found in preferences table"}), 404
 
     # ดึง location ล่าสุดของ user หลัก
-    user_location = pd.read_sql(f'''
-        SELECT latitude, longitude 
-        FROM location 
-        WHERE userID = {id} 
-        ORDER BY timestamp DESC 
-        LIMIT 1
-    ''', conn)
+    user_location = pd.read_sql(
+    """
+    SELECT latitude, longitude 
+    FROM location 
+    WHERE userID = %s 
+    ORDER BY timestamp DESC 
+    LIMIT 1
+    """,
+    conn, params=[id]
+    )
+
     if user_location.empty:
         return jsonify({"error": "User location not found"}), 404
 
@@ -98,7 +102,7 @@ def recommend(id):
     x_other_users = x.drop([id])
     recommended_user_ids = []
     for other_user_id, other_user_data in x_other_users.iterrows():
-        if (x_login_user.values[0] == other_user_data.values).sum() >= 1:
+        if (x_login_user.values[0] * other_user_data.values).sum() >= 1:
             recommended_user_ids.append(other_user_id)
 
     # โหลด mapping preference id -> name
@@ -111,12 +115,22 @@ def recommend(id):
         if not df.empty:
             df['source'] = source_name
         return df
+    
+    def in_clause(vals):
+        if not vals:
+            return "IN (NULL)", []
+        placeholders = ", ".join(["%s"] * len(vals))
+        return f"IN ({placeholders})", list(vals)
+
+    # --- เตรียม IN-clause สำหรับลิสต์ทั้งสอง ---
+    in_rec, p_rec = in_clause(recommended_user_ids)  # สำหรับ "นิสัยเหมือน"
+    in_near, p_near = in_clause(nearby_users)        # สำหรับ "อยู่ใกล้"
 
     # ------------------ sql_query1: คนที่อยู่ใกล้ + นิสัยเหมือน ------------------
-    sql_query1 = '''
+    sql_query1 = f'''
         WITH ranked_location AS (
             SELECT userID, latitude, longitude,
-                   ROW_NUMBER() OVER (PARTITION BY userID ORDER BY timestamp DESC) AS rn
+                ROW_NUMBER() OVER (PARTITION BY userID ORDER BY timestamp DESC) AS rn
             FROM location
         )
         SELECT 
@@ -130,61 +144,65 @@ def recommend(id):
         LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = %s) OR (m.user2ID = u.UserID AND m.user1ID = %s)
         LEFT JOIN blocked_chats b ON (b.user1ID = %s AND b.user2ID = u.UserID) OR (b.user2ID = %s AND b.user1ID = u.UserID)
         LEFT JOIN userlike l2 ON (l2.likerID = %s AND l2.likedID = u.UserID)
-        WHERE u.UserID IN %s AND u.UserID IN %s AND u.UserID != %s
-          AND m.matchID IS NULL
-          AND (b.isBlocked IS NULL OR b.isBlocked = 0)
-          AND l2.likedID IS NULL
-          AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
-          AND u.goalID = (SELECT goalID FROM user WHERE UserID = %s)
+        WHERE u.UserID {in_rec} AND u.UserID {in_near} AND u.UserID != %s
+        AND m.matchID IS NULL
+        AND (b.isBlocked IS NULL OR b.isBlocked = 0)
+        AND l2.likedID IS NULL
+        AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
+        AND u.goalID   = (SELECT goalID          FROM user WHERE UserID = %s)
         ORDER BY distance ASC;
     '''
-    params1 = (
-        user_lat, user_lon, user_lat,
-        id, id, id, id, id,
-        tuple(recommended_user_ids), tuple(nearby_users), id,
-        id, id
-    )
+    params1 = [
+        user_lat, user_lon, user_lat,     # ระยะทาง
+        id, id,                           # matches
+        id, id,                           # blocked_chats
+        id,                               # userlike
+        *p_rec, *p_near,                  # ค่าจริงสำหรับ IN (...) ทั้งสองตัว
+        id,                               # u.UserID != %s
+        id, id                            # gender/goal ของผู้ใช้หลัก
+    ]
     recommended_users_1 = fetch_query_df(sql_query1, params1, 'sql_query1')
 
     # ------------------ sql_query2: คนที่อยู่ใกล้ (ไม่เช็คนิสัย) ------------------
-    sql_query2 = '''
+    sql_query2 = f'''
         SELECT u.UserID, u.nickname, u.imageFile, u.verify, u.dateBirth
         FROM user u
         LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = %s)
                             OR (m.user2ID = u.UserID AND m.user1ID = %s)
         LEFT JOIN blocked_chats b ON (b.user1ID = %s AND b.user2ID = u.UserID)
-                                  OR (b.user2ID = %s AND b.user1ID = u.UserID)
+                                OR (b.user2ID = %s AND b.user1ID = u.UserID)
         LEFT JOIN userlike l ON (l.likerID = %s AND l.likedID = u.UserID)
-        WHERE u.UserID IN %s
-          AND u.UserID != %s
-          AND m.matchID IS NULL
-          AND (b.isBlocked IS NULL OR b.isBlocked = 0)
-          AND l.likedID IS NULL
-          AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
-          AND u.goalID = (SELECT goalID FROM user WHERE UserID = %s);
+        WHERE u.UserID {in_near}
+        AND u.UserID != %s
+        AND m.matchID IS NULL
+        AND (b.isBlocked IS NULL OR b.isBlocked = 0)
+        AND l.likedID IS NULL
+        AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
+        AND u.goalID   = (SELECT goalID          FROM user WHERE UserID = %s);
     '''
-    params2 = (id, id, id, id, id, tuple(nearby_users), id, id, id)
+    params2 = [id, id, id, id, id, *p_near, id, id, id]
     recommended_users_2 = fetch_query_df(sql_query2, params2, 'sql_query2')
 
     # ------------------ sql_query3: นิสัยเหมือนอย่างเดียว ------------------
-    sql_query3 = '''
+    sql_query3 = f'''
         SELECT u.UserID, u.nickname, u.imageFile, u.verify, u.dateBirth
         FROM user u
         LEFT JOIN matches m ON (m.user1ID = u.UserID AND m.user2ID = %s)
                             OR (m.user2ID = u.UserID AND m.user1ID = %s)
         LEFT JOIN blocked_chats b ON (b.user1ID = %s AND b.user2ID = u.UserID)
-                                  OR (b.user2ID = %s AND b.user1ID = u.UserID)
+                                OR (b.user2ID = %s AND b.user1ID = u.UserID)
         LEFT JOIN userlike l ON (l.likerID = %s AND l.likedID = u.UserID)
-        WHERE u.UserID IN %s
-          AND u.UserID != %s
-          AND m.matchID IS NULL
-          AND (b.isBlocked IS NULL OR b.isBlocked = 0)
-          AND l.likedID IS NULL
-          AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
-          AND u.goalID = (SELECT goalID FROM user WHERE UserID = %s);
+        WHERE u.UserID {in_rec}
+        AND u.UserID != %s
+        AND m.matchID IS NULL
+        AND (b.isBlocked IS NULL OR b.isBlocked = 0)
+        AND l.likedID IS NULL
+        AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
+        AND u.goalID   = (SELECT goalID          FROM user WHERE UserID = %s);
     '''
-    params3 = (id, id, id, id, id, tuple(recommended_user_ids), id, id, id)
+    params3 = [id, id, id, id, id, *p_rec, id, id, id]
     recommended_users_3 = fetch_query_df(sql_query3, params3, 'sql_query3')
+
 
     # รวมผลลัพธ์
     recommended_users = pd.concat([
@@ -205,6 +223,18 @@ def recommend(id):
         else:
             shared_pref_list.append([])
 
+    def user_pref_names(uid: int):
+        if uid in x.index:  # x คือ pivot (UserID x PreferenceID) ที่คุณสร้างไว้
+            pref_ids = list(x.columns[x.loc[uid] > 0])   # ใช้ > 0 กันเคสซ้ำ
+            return [pref_dict.get(p, f"Preference {p}") for p in pref_ids]
+        return []
+    
+    recommended_users['UserID'] = recommended_users['UserID'].astype(int)
+    recommended_users['allPreferences'] = [
+    user_pref_names(uid) for uid in recommended_users['UserID']
+    ]
+
+    recommended_users['allPreferencesCount'] = recommended_users['allPreferences'].apply(len)
     recommended_users['sharedPreferences'] = shared_pref_list
     recommended_users['sharedPreferencesCount'] = recommended_users['sharedPreferences'].apply(len)
 
@@ -217,13 +247,14 @@ def recommend(id):
 
     return jsonify(recommended_users[[
         'UserID', 'nickname', 'imageFile', 'verify', 'dateBirth',
-        'sharedPreferences', 'sharedPreferencesCount', 'source'
+        'sharedPreferences', 'sharedPreferencesCount', 'allPreferences', 'allPreferencesCount', 'source'
     ]].to_dict(orient='records')), 200
 
 
 
 @app.route('/ai_v2/user/<filename>', methods=['GET'])
 def get_user_image(filename):
+
     # Full path to the image file
     image_path = os.path.join(IMAGE_FOLDER, filename)
 
