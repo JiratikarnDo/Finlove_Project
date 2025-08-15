@@ -436,7 +436,6 @@ app.post('/api_v2/reset-password', async (req, res) => {
 });
 
 
-
 ///////////////////////////////////////////////////////////// user Manage /////////////////////////////////////////////////////////////
 
 
@@ -844,7 +843,6 @@ app.delete('/api_v2/user/:id', async function (req, res) {
 });
 
 
-
 ///////////////////////////////////////////////////////////// Show All user /////////////////////////////////////////////////////////////
 
 
@@ -1034,29 +1032,105 @@ app.post('/api_v2/dislike', (req, res) => {
 
 debugger
 app.get('/api_v2/wholike', (req, res) => {
-    const userID = req.query.userID;  // userID ที่ล็อกอินอยู่ ต้องส่งมาจาก client
+  const userID = req.query.userID;
+  if (!userID) {
+    return res.status(400).json({ message: "กรุณาส่ง userID มาใน query string" });
+  }
 
-    if (!userID) {
-        return res.status(400).json({ message: "กรุณาส่ง userID มาใน query string" });
+  // 1) ดึงความชอบของเราไว้หาว่า shared อะไร
+  const prefSql = `
+    SELECT p.PreferenceNames
+    FROM userpreferences up
+    JOIN preferences p ON up.PreferenceID = p.PreferenceID
+    WHERE up.UserID = ?
+    ORDER BY up.created_at DESC
+    LIMIT 3
+  `;
+
+  db.query(prefSql, [userID], (err, myPrefs) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูล" });
     }
+    const myPrefNames = myPrefs.map(p => p.PreferenceNames);
 
     const sql = `
-    SELECT DISTINCT u.userID, u.nickname, u.verify, u.imageFile, u.DateBirth
-    FROM userlike ul
-    JOIN user u ON ul.likerID = u.userID
-    WHERE ul.likedID = ?;
-`;
+      SELECT L1.UserID, L1.nickname, L1.verify, L1.imageFile, L1.DateBirth,
+             L1.distance_km,
+             COALESCE(
+               (
+                 SELECT JSON_ARRAYAGG(p.PreferenceNames) AS preferences
+                 FROM (
+                   SELECT up.PreferenceID
+                   FROM userpreferences up
+                   WHERE up.UserID = L1.UserID
+                   ORDER BY up.created_at DESC
+                   LIMIT 3
+                 ) latest_up
+                 JOIN preferences p ON p.PreferenceID = latest_up.PreferenceID
+               ),
+               JSON_ARRAY()
+             ) AS preferences
+      FROM (
+        SELECT u.UserID, u.nickname, u.verify, u.imageFile, u.DateBirth,
+               
+               6371 * ACOS(
+                 LEAST(1, GREATEST(-1,
+                   COS(RADIANS(me.latitude)) * COS(RADIANS(ll.latitude)) *
+                   COS(RADIANS(ll.longitude) - RADIANS(me.longitude)) +
+                   SIN(RADIANS(me.latitude)) * SIN(RADIANS(ll.latitude))
+                 ))
+               ) AS distance_km
+        FROM (SELECT DISTINCT likerID FROM userlike WHERE likedID = ?) ul
+        JOIN \`user\` u ON u.UserID = ul.likerID
+        
+        JOIN (
+          SELECT l.userID, l.latitude, l.longitude
+          FROM location l
+          JOIN (
+            SELECT userID, MAX(timestamp) AS ts
+            FROM location
+            GROUP BY userID
+          ) t ON t.userID = l.userID AND t.ts = l.timestamp
+        ) ll ON ll.userID = u.UserID
+        
+        JOIN (
+          SELECT l.latitude, l.longitude
+          FROM location l
+          WHERE l.userID = ?
+          ORDER BY l.timestamp DESC
+          LIMIT 1
+        ) me
+      ) AS L1
+      ORDER BY L1.distance_km ASC
+    `;
 
+    // พารามิเตอร์: 1) likedID (คือ userID ของเรา) 2) userID ของเรา (ดึงพิกัดล่าสุด)
+    db.query(sql, [userID, userID], (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูล" });
+      }
 
-    db.query(sql, [userID], (err, results) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูล" });
-        }
+      results.forEach(r => {
+        // preferences อาจถูกคืนเป็นสตริงในบางไดรเวอร์
+        if (typeof r.preferences === 'string') r.preferences = JSON.parse(r.preferences);
+        
 
-        res.json(results);  // ส่ง list user ที่มากดไลค์ user นี้
+        // ปัดทศนิยมระยะทางให้อ่านง่าย
+        if (r.distance_km != null) r.distance_km = Number(r.distance_km.toFixed(2));
+
+        // หา shared preferences กับเรา
+        r.sharedPreferences = r.preferences
+          .filter(p => myPrefNames.includes(p.name))
+          .map(p => p.name);
+      });
+
+      res.json(results);
     });
+  });
 });
+
 
 app.get('/api_v2/likedbyme', (req, res) => {
     const userID = req.query.userID;

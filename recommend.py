@@ -92,8 +92,10 @@ def recommend(id):
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     nearby_users = []
+    distance_map = {}
     for _, row in other_locs.iterrows():
         dist = haversine(user_lat, user_lon, row['latitude'], row['longitude'])
+        distance_map[int(row['userID'])] = haversine(user_lat, user_lon, row['latitude'], row['longitude'])
         if dist <= distance:
             nearby_users.append(row['userID'])
 
@@ -153,7 +155,7 @@ def recommend(id):
         ORDER BY distance ASC;
     '''
     params1 = [
-        user_lat, user_lon, user_lat,     # ระยะทาง
+        user_lat, user_lon, user_lat,   # ระยะทาง
         id, id,                           # matches
         id, id,                           # blocked_chats
         id,                               # userlike
@@ -178,9 +180,13 @@ def recommend(id):
         AND (b.isBlocked IS NULL OR b.isBlocked = 0)
         AND l.likedID IS NULL
         AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
-        AND u.goalID   = (SELECT goalID          FROM user WHERE UserID = %s);
     '''
-    params2 = [id, id, id, id, id, *p_near, id, id, id]
+
+    print('nearby_users len =', len(nearby_users))
+    print('nearby sample =', nearby_users[:10])
+    print('p_near count =', len(p_near))
+
+    params2 = [id, id, id, id, id, *p_near, id, id]
     recommended_users_2 = fetch_query_df(sql_query2, params2, 'sql_query2')
 
     # ------------------ sql_query3: นิสัยเหมือนอย่างเดียว ------------------
@@ -198,11 +204,9 @@ def recommend(id):
         AND (b.isBlocked IS NULL OR b.isBlocked = 0)
         AND l.likedID IS NULL
         AND u.GenderID = (SELECT interestGenderID FROM user WHERE UserID = %s)
-        AND u.goalID   = (SELECT goalID          FROM user WHERE UserID = %s);
     '''
-    params3 = [id, id, id, id, id, *p_rec, id, id, id]
+    params3 = [id, id, id, id, id, *p_rec, id, id]
     recommended_users_3 = fetch_query_df(sql_query3, params3, 'sql_query3')
-
 
     # รวมผลลัพธ์
     recommended_users = pd.concat([
@@ -233,10 +237,8 @@ def recommend(id):
     recommended_users['allPreferences'] = [
     user_pref_names(uid) for uid in recommended_users['UserID']
     ]
-
-    recommended_users['allPreferencesCount'] = recommended_users['allPreferences'].apply(len)
     recommended_users['sharedPreferences'] = shared_pref_list
-    recommended_users['sharedPreferencesCount'] = recommended_users['sharedPreferences'].apply(len)
+    recommended_users['distance'] = recommended_users['UserID'].map(distance_map)
 
     # เติม URL รูปภาพ
     for idx, user in recommended_users.iterrows():
@@ -246,8 +248,8 @@ def recommend(id):
     conn.close()
 
     return jsonify(recommended_users[[
-        'UserID', 'nickname', 'imageFile', 'verify', 'dateBirth',
-        'sharedPreferences', 'sharedPreferencesCount', 'allPreferences', 'allPreferencesCount', 'source'
+        'UserID', 'nickname', 'imageFile', 'verify', 'dateBirth', 'distance',
+        'sharedPreferences', 'allPreferences', 'source'
     ]].to_dict(orient='records')), 200
 
 
