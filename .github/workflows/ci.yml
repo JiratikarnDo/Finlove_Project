@@ -24,21 +24,26 @@ jobs:
           cache: npm
 
       - name: Install deps
-        if: ${{ hashFiles('package.json') != '' }}
+        if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/*.py') != '' }}
+        shell: bash
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
+          set -euo pipefail
+          python -m pip install --upgrade pip setuptools wheel
+          if [[ -f requirements.txt ]]; then
+            pip install -r requirements.txt
           fi
+          if [[ -f pyproject.toml ]]; then
+            pip install .
+          fi
+          pip install pytest || true
 
-      - name: Lint (optional)
-        if: ${{ hashFiles('package.json') != '' }}
-        run: npm run lint --if-present
+            - name: Lint (optional)
+              if: ${{ hashFiles('package.json') != '' }}
+              run: npm run lint --if-present
 
-      - name: Test
-        if: ${{ hashFiles('package.json') != '' }}
-        run: npm test || echo "no node tests"
+            - name: Test
+              if: ${{ hashFiles('package.json') != '' }}
+              run: npm test || echo "no node tests"
 
   python-test:
     name: Python tests
