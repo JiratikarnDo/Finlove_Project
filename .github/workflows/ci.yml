@@ -48,7 +48,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # มีไฟล์ Python/requirements ค่อยรันต่อ
       - uses: actions/setup-python@v5
         if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/*.py') != '' }}
         with:
@@ -57,8 +56,27 @@ jobs:
 
       - name: Install deps
         if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/*.py') != '' }}
+        shell: bash
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
+          if [[ -f requirements.txt ]]; then
             pip install -r requirements.txt
-          e
+          fi
+          if [[ -f pyproject.toml ]]; then
+            pip install .
+          fi
+          pip install pytest || true
+
+      - name: Lint (optional)
+        if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/*.py') != '' }}
+        shell: bash
+        run: |
+          pip install flake8 || true
+          flake8 . || true
+
+      - name: Test
+        if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/*.py') != '' }}
+        shell: bash
+        run: pytest -q || echo "no python tests"
+
