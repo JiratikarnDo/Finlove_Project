@@ -62,7 +62,7 @@ db.connect();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/assets/user', express.static(path.join(__dirname, 'web', 'front-end', 'assets', 'employee')));
+app.use('/assets/user', express.static(path.join(__dirname, 'assets', 'user')));
 
 
 // Nodemailer Transporter Configuration
