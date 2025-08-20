@@ -1,8 +1,7 @@
-# กำหนดให้ไฟล์ JavaScript เป็นภาษาหลัก (ถ้าไม่แน่ใจว่า GitHub จะตรวจถูก)
 *.js linguist-language=JavaScript
 
-# หากคุณมีโฟลเดอร์ที่มีไฟล์ที่สร้างขึ้น (generated files) ที่ไม่ต้องการนับ
 dist/ linguist-generated
 build/ linguist-generated
 
 vendor/ linguist-vendored
+

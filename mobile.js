@@ -11,7 +11,6 @@ require('dotenv').config();
 
 const jwt = require('jsonwebtoken');
 const SECRET_KEY = process.env.SECRET_KEY;
-const userService = require('./service');
 const app = express();
 const saltRounds = 10;
 const bodyParser = require('body-parser');
@@ -64,6 +63,24 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets/user', express.static(path.join(__dirname, 'assets', 'user')));
 
+// สูตรคำนวณ ระยะห่างเป็น KM
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371; // km
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const dPhi = toRad(lat2 - lat1);
+  const dLam = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dPhi / 2) ** 2 +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // กิโลเมตร
+}
+
 
 // Nodemailer Transporter Configuration
 const transporter = nodemailer.createTransport({
@@ -88,116 +105,73 @@ const loginLimiter = rateLimit({
     message: "Too many login attempts from this IP, please try again after 10 seconds"
 }); 
 
-function authenticateJWT(req, res, next) {
-  const authHeader = req.headers['authorization'];
+// กำหนดระยะเวลาว่ากี่นาทีหมดเวลา
+function signAccess(payload) {
+  return jwt.sign(payload, process.env.SECRET_KEY, { expiresIn: '2h' });
+}
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const decoded = jwt.verify(token, SECRET_KEY);
-      req.user = decoded; // แนบข้อมูลจาก JWT ไว้ใน req.user
-      next();
-    } catch (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-  } else {
-    return res.status(401).json({ error: 'No token provided' });
+// เอาไว้เช็ค JWT ว่าถูกต้องหรือไม่
+function requireAuth(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return res.status(401).json({ message: "missing token" });
+  try {
+    const payload = jwt.verify(token, process.env.ACCESS_SECRET);
+    req.viewerID = payload.userID;
+    next();
+  } catch {
+    return res.status(401).json({ message: "invalid or expired token" });
   }
 }
 
+function computeLockSeconds(failed) {
+  // เริ่มล็อกตั้งแต่ครั้งที่ 5 และ “ขั้นบันได” แบบเดิม
+  const steps = [60, 300, 600, 1200, 1800]; // วินาที: 1m,5m,10m,20m,30m
+  const base = 5; // เริ่มล็อคเมื่อ failed >= 5
+  if (failed < base) return 0;
 
+  const idx = Math.min(failed - base, steps.length - 1);
+  return steps[idx];
+}
 
-///////////////////////////////////////////////////////////// Login Logout /////////////////////////////////////////////////////////////
+app.post('/api_v2/login', async (req, res) => {
+  const { username, password } = req.body;
+  const sql = "SELECT userID, username, password, isActive FROM user WHERE username = ?";
 
-
-app.post('/api_v2/login', async function(req, res) {
-    const { username, password } = req.body;
-    const sql = "SELECT userID, password, loginAttempt, isActive, lastAttemptTime FROM user WHERE username = ?";
-
-    try {
-        const [users] = await db.promise().query(sql, [username]);
-
-        if (users.length > 0) {
-            const user = users[0];
-            const storedHashedPassword = user.password;
-            const loginAttempt = user.loginAttempt;
-            const isActive = user.isActive;
-            const lastAttemptTime = user.lastAttemptTime ? new Date(user.lastAttemptTime) : null;
-            const now = new Date();
-            
-            // ระยะเวลาล็อกแบบไล่ตามขั้นบันได (เริ่มที่ 1 นาทีเมื่อผิดครั้งที่ 5)
-            const lockIntervals = [60, 300, 600, 1200, 1800]; // หน่วยเป็นวินาที (เริ่มต้นที่ 1 นาที)
-            const baseLockDuration = 5; // เริ่มล็อกเมื่อล็อกอินผิดครั้งที่ 5
-            let lockDuration = lockIntervals[0] * 1000; // เริ่มล็อกครั้งแรก 1 นาที
-
-            if (loginAttempt >= baseLockDuration) {
-                lockDuration = lockIntervals[Math.min(loginAttempt - baseLockDuration, lockIntervals.length - 1)] * 1000; // ใช้ lockIntervals ที่เหมาะสม
-
-                const diffSeconds = (now - lastAttemptTime) / 1000;
-
-                if (diffSeconds < lockDuration / 1000) {
-                    return res.send({
-                        "message": `บัญชีนี้ถูกปิดใช้งาน กรุณาลองอีกครั้งหลังจาก ${Math.ceil((lockDuration / 1000) - diffSeconds)} วินาที`, 
-                        "status": false 
-                    });
-                } else {
-                    // ปลดล็อกบัญชีเมื่อครบกำหนดและรีเซ็ต loginAttempt
-                    await db.promise().query("UPDATE user SET loginAttempt = 0, isActive = 1 WHERE userID = ?", [user.userID]);
-                }
-            }
-
-            const match = await bcrypt.compare(password, storedHashedPassword);
-
-            if (match) {
-                await db.promise().query("UPDATE user SET loginAttempt = 0, lastAttemptTime = NOW(), isActive = 1 WHERE userID = ?", [user.userID]);
-                const payload = {
-                    userID: user.userID,
-                    username: username
-                }
-
-                const token = jwt.sign(
-                    payload,
-                    SECRET_KEY, 
-                    { expiresIn: '1h' } // กำหนดให้ Token หมดอายุใน 1 ชั่วโมง
-                );
-
-                return res.send({ 
-                    "message": "เข้าสู่ระบบสำเร็จ", 
-                    "status": true,
-                    "userID": user.userID,
-                    "token": token
-                });
-            } else {
-                const [updateResult] = await db.promise().query("UPDATE user SET loginAttempt = loginAttempt + 1, lastAttemptTime = NOW() WHERE userID = ?", [user.userID]);
-
-                if (updateResult.affectedRows > 0) {
-                    if (loginAttempt + 1 === baseLockDuration) {
-                        await db.promise().query("UPDATE user SET isActive = 0 WHERE userID = ?", [user.userID]);
-                        return res.send({ 
-                            "message": `บัญชีถูกล็อค กรุณาลองอีกครั้งใน ${lockIntervals[0]} วินาที`, 
-                            "status": false 
-                        });
-                    } else if (loginAttempt + 1 > baseLockDuration) {
-                        await db.promise().query("UPDATE user SET isActive = 0 WHERE userID = ?", [user.userID]);
-                        return res.send({ 
-                            "message": `บัญชีถูกล็อค กรุณาลองอีกครั้งใน ${lockIntervals[Math.min(loginAttempt - baseLockDuration, lockIntervals.length - 1)]} วินาที`, 
-                            "status": false 
-                        });
-                    } else {
-                        return res.send({ "message": "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง", "status": false });
-                    }
-                } else {
-                    return res.send({ "message": "เกิดข้อผิดพลาดในการอัปเดตข้อมูล", "status": false });
-                }
-            }
-        } else {
-            return res.send({ "message": "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง", "status": false });
-        }
-    } catch (err) {
-        console.log('Error during login process:', err);
-        return res.status(500).send("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+  try {
+    const [rows] = await db.promise().query(sql, [username]);
+    if (!rows.length) {
+      return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
     }
+
+    const user = rows[0];
+
+    // เช็คว่าถูกปิดถาวรหรือไม่
+    if (user.isActive === 0) {
+      return res.send({ status: false, message: "บัญชีถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ" });
+    }
+
+    // ตรวจรหัสผ่าน
+    const ok = await bcrypt.compare(password, user.password);
+
+    if (ok) {
+      const token = signAccess({ userID: user.userID, username: user.username });
+
+      return res.send({
+        status: true,
+        message: "เข้าสู่ระบบสำเร็จ",
+        userID: user.userID,
+        token
+      });
+    } else {
+      return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
+    }
+  } catch (err) {
+    console.error('Error during login process:', err);
+    return res.status(500).send("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+  }
 });
+
 
 
 // API Logout
@@ -1156,26 +1130,107 @@ app.get('/api_v2/likedbyme', (req, res) => {
 });
 
 // API user Detail
-app.post('/api_v2/user/detail', (req, res) => {
-    const { userID } = req.body;
+app.post('/api_v2/user/detail', async (req, res) => {
+ const { userID, viewerUserID } = req.body || {};
 
-    if (!userID) {
-        return res.status(400).json({ message: "กรุณาส่ง userID ใน request body" });
+  if (!userID) {
+    return res.status(400).json({ message: "กรุณาส่ง userID ใน request body" });
+  }
+
+  // ดึงพิกัดล่าสุดของ "user เป้าหมาย" และ "viewer" ออกมาเพื่อคำนวณฝั่ง JS
+  const sql = `
+    SELECT 
+      u.UserID, u.nickname, u.GenderID, u.DateBirth, u.imageFile, u.verify,
+
+      -- พิกัด viewer (อาจเป็น NULL ถ้าไม่ส่ง viewerUserID)
+      me.latitude   AS me_lat,
+      me.longitude  AS me_lon,
+
+      -- พิกัดล่าสุดของ user เป้าหมาย
+      loc.latitude  AS user_lat,
+      loc.longitude AS user_lon,
+
+      COALESCE(
+        (
+          SELECT JSON_ARRAYAGG(p.PreferenceNames)
+          FROM (
+            SELECT up.PreferenceID
+            FROM userpreferences up
+            WHERE up.UserID = u.UserID
+            ORDER BY up.created_at DESC
+            LIMIT 3
+          ) latest_up
+          JOIN preferences p ON p.PreferenceID = latest_up.PreferenceID
+        ),
+        JSON_ARRAY()
+      ) AS preferences
+
+    FROM \`user\` u
+
+    /* พิกัดล่าสุดของ user เป้าหมาย */
+    LEFT JOIN (
+      SELECT l.userID, l.latitude, l.longitude
+      FROM location l
+      JOIN (
+        SELECT userID, MAX(timestamp) AS ts
+        FROM location
+        GROUP BY userID
+      ) t ON t.userID = l.userID AND t.ts = l.timestamp
+    ) loc ON loc.userID = u.UserID
+
+    /* พิกัดล่าสุดของผู้ชม (viewer) */
+    LEFT JOIN (
+      SELECT l.latitude, l.longitude
+      FROM location l
+      WHERE l.userID = ?
+      ORDER BY l.timestamp DESC
+      LIMIT 1
+    ) me ON 1=1
+
+    WHERE u.UserID = ?;
+  `;
+
+  try {
+    const rows = await query(sql, [viewerUserID || null, userID]);
+    if (!rows?.length) {
+      return res.status(404).json({ message: "User not found." });
     }
 
-    // แก้ไขจาก targetUserID เป็น userID
-    userService.getUserDetails(userID, (err, userData) => {
-        if (err) {
-            console.error('Error fetching user details:', err);
-            if (err.message === "User not found") {
-                return res.status(404).json({ message: "User not found." });
-            }
-            return res.status(500).json({ message: "Internal server error." });
-        }
-        res.json(userData);
-    });
-});
+    const row = rows[0];
 
+    // preferences อาจถูกคืนเป็นสตริงในบางไดรเวอร์ MySQL
+    if (typeof row.preferences === 'string') {
+      try { row.preferences = JSON.parse(row.preferences); } catch { row.preferences = []; }
+    }
+
+    // คำนวณระยะทางด้วย Haversine (ถ้ามีพิกัดครบ)
+    let distance_km = null;
+    if (
+      row.me_lat != null && row.me_lon != null &&
+      row.user_lat != null && row.user_lon != null
+    ) {
+      distance_km = haversine(row.me_lat, row.me_lon, row.user_lat, row.user_lon);
+      distance_km = Number(distance_km.toFixed(2));
+    }
+
+    // จัดรูปผลลัพธ์ (ซ่อนพิกัดภายใน ถ้าไม่อยากส่งออก)
+    const out = {
+      UserID: row.UserID,
+      nickname: row.nickname,
+      GenderID: row.GenderID,
+      DateBirth: row.DateBirth,
+      imageFile: row.imageFile,
+      verify: row.verify,
+      distance_km,
+      preferences: row.preferences,
+    };
+
+    return res.json(out);
+  } catch (err) {
+    console.error('Error fetching user detail:', err);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+});
 
 
 // API Check Match
@@ -1233,7 +1288,7 @@ app.post('/api_v2/check_match', (req, res) => {
 
 // API add-location คำนวณรัดติจูด ลองติจูด
 debugger
-app.post('/api_v2/add-location', authenticateJWT, async (req, res) => {
+app.post('/api_v2/add-location', requireAuth, async (req, res) => {
   const userID = req.user.userID;
   const { latitude, longitude } = req.body;
 
@@ -1402,7 +1457,6 @@ app.get('/api_v2/chats/:matchID', (req, res) => {
 });
 
 
-
 // API Chat New Message
 app.post('/api_v2/chats/:matchID', (req, res) => {
     const { matchID } = req.params;
@@ -1496,7 +1550,6 @@ app.post('/api_v2/block-chat', (req, res) => {
             console.log(`Swapped values - user1ID: ${user1ID}, user2ID: ${user2ID}`);
         }
 
-        // ดี
         // ตรวจสอบอีกครั้งเพื่อให้มั่นใจว่า user1ID และ user2ID ไม่ซ้ำกัน
         if (user1ID == user2ID) {
             console.log("Detected same IDs for user1ID and user2ID after swapping, correcting user2ID to the other user");
