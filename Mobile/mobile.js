@@ -7,14 +7,11 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
-
+require("dotenv").config({ path: __dirname + "/../.env" });
 const jwt = require('jsonwebtoken');
-const SECRET_KEY = process.env.SECRET_KEY;
 const app = express();
 const saltRounds = 10;
-const bodyParser = require('body-parser');
-
+const db = require("./db.js");
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'assets/user/');  
@@ -39,13 +36,6 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-const db = mysql.createConnection({
-    host: process.env.DATABASE_HOST,
-    user: process.env.DATABASE_USER,
-    password: process.env.DATABASE_PASSWORD,
-    database: process.env.DATABASE_NAME
-});
-
 const config = {
     secretKey: 'UX23Y24%@&2aMb',
     serverPort: 8501,
@@ -56,8 +46,6 @@ const config = {
         pass: 'dyon lkfk cyzf bsqq'
     }
 };
-
-db.connect();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -113,13 +101,14 @@ function signAccess(payload) {
 // เอาไว้เช็ค JWT ว่าถูกต้องหรือไม่
 function requireAuth(req, res, next) {
   const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  const token = h.startsWith("Bearer ") ? h.slice(7).trim() : null;
   if (!token) return res.status(401).json({ message: "missing token" });
   try {
-    const payload = jwt.verify(token, process.env.ACCESS_SECRET);
+    const payload = jwt.verify(token, process.env.SECRET_KEY, { algorithms: ['HS256'] });
+    req.user = payload;
     req.viewerID = payload.userID;
     next();
-  } catch {
+  } catch (e) {
     return res.status(401).json({ message: "invalid or expired token" });
   }
 }
@@ -139,7 +128,7 @@ app.post('/api_v2/login', async (req, res) => {
   const sql = "SELECT userID, username, password, isActive FROM user WHERE username = ?";
 
   try {
-    const [rows] = await db.promise().query(sql, [username]);
+    const [rows] = await db.query(sql, [username]);
     if (!rows.length) {
       return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
     }
@@ -180,7 +169,7 @@ app.post('/api_v2/logout/:id', async (req, res) => {
     const updateSql = "UPDATE user SET isActive = 1, loginAttempt = 0 WHERE userID = ?";
 
     try {
-        await db.promise().query(updateSql, [id]);
+        await db.query(updateSql, [id]);
         res.send({ status: true, message: "Logged out successfully" });
     } catch (err) {
         console.error('Error during logout process:', err);
@@ -201,8 +190,8 @@ app.post('/api_v2/checkusernameEmail', async function(req, res) {
     }
 
     try {
-        const [usernameResult] = await db.promise().execute("SELECT username FROM user WHERE username = ?", [username]);
-        const [emailResult] = await db.promise().query("SELECT email FROM user WHERE email = ?", [email]);
+        const [usernameResult] = await db.query().execute("SELECT username FROM user WHERE username = ?", [username]);
+        const [emailResult] = await db.query("SELECT email FROM user WHERE email = ?", [email]);
 
         if (usernameResult.length > 0) {
             return res.status(409).send({ "message": "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว", "status": false });
@@ -235,7 +224,7 @@ app.post('/api_v2/register8', upload.single('imageFile'), async function(req, re
 
     try {
         // ตรวจสอบว่าอีเมลหรือชื่อผู้ใช้ซ้ำหรือไม่
-        const [existingUser] = await db.promise().query("SELECT * FROM user WHERE email = ? OR username = ?", [email, username]);
+        const [existingUser] = await db.query("SELECT * FROM user WHERE email = ? OR username = ?", [email, username]);
         if (existingUser.length > 0) {
             return res.status(409).send({ "message": "อีเมลหรือชื่อผู้ใช้ซ้ำ กรุณาใช้ข้อมูลใหม่", "status": false });
         }
@@ -244,7 +233,7 @@ app.post('/api_v2/register8', upload.single('imageFile'), async function(req, re
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         // ค้นหา GenderID
-        const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
+        const [genderResult] = await db.query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
 
         if (genderResult.length === 0) {
             console.log("ไม่พบข้อมูลเพศที่ระบุ");
@@ -263,14 +252,14 @@ app.post('/api_v2/register8', upload.single('imageFile'), async function(req, re
             INSERT INTO user (username, password, email, firstname, lastname, nickname, GenderID, height, phonenumber, home, DateBirth, EducationID, goalID, imageFile, interestGenderID )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const [insertResult] = await db.promise().query(sqlInsert, [username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID]);
+        const [insertResult] = await db.query(sqlInsert, [username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID]);
 
         const userID = insertResult.insertId;
 
         // บันทึก preferences
         const preferenceIDs = preferences.split(',').map(id => parseInt(id));
         for (const preferenceID of preferenceIDs) {
-            await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [userID, preferenceID]);
+            await db.query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [userID, preferenceID]);
         }
 
         console.log(`Preferences saved for user ${userID}: `, preferenceIDs);
@@ -292,7 +281,7 @@ app.post('/api_v2/request-pin', async (req, res) => {
 
     try {
         // ดึง userID จาก email
-        const [result] = await db.promise().query("SELECT userID FROM user WHERE email = ?", [email]);
+        const [result] = await db.query("SELECT userID FROM user WHERE email = ?", [email]);
 
         if (result.length === 0) {
             return res.status(400).send("ไม่พบอีเมลนี้ในระบบ"); // ส่งข้อความโดยตรง
@@ -303,7 +292,7 @@ app.post('/api_v2/request-pin', async (req, res) => {
         const expirationDate = new Date(Date.now() + 3600000); // PIN หมดอายุใน 1 ชั่วโมง
 
         // อัพเดต pinCode และ pinCodeExpiration โดยใช้ userID
-        const updateResult = await db.promise().query(
+        const updateResult = await db.query(
             "UPDATE user SET pinCode = ?, pinCodeExpiration = ? WHERE userID = ?",
             [pinCode, expirationDate, userID]
         );
@@ -338,7 +327,7 @@ app.post('/api_v2/verify-pin', async (req, res) => {
 
     try {
         // ตรวจสอบว่าอีเมลและ PIN ถูกต้อง
-        const [result] = await db.promise().query(
+        const [result] = await db.query(
             "SELECT userID, pinCode, pinCodeExpiration FROM user WHERE email = ? AND pinCode = ?",
             [email, pin]
         );
@@ -378,7 +367,7 @@ app.post('/api_v2/reset-password', async (req, res) => {
 
     try {
         // ตรวจสอบ PIN และวันหมดอายุ
-        const [result] = await db.promise().query(
+        const [result] = await db.query(
             "SELECT userID, pinCode, pinCodeExpiration FROM user WHERE email = ? AND pinCode = ? AND pinCodeExpiration > ?",
             [email, pin, new Date()]
         );
@@ -393,7 +382,7 @@ app.post('/api_v2/reset-password', async (req, res) => {
         const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
         // อัปเดตรหัสผ่านใหม่ในฟิลด์ password และลบข้อมูล PIN ออก
-        const updateResult = await db.promise().query(
+        const updateResult = await db.query(
             "UPDATE user SET password = ?, pinCode = NULL, pinCodeExpiration = NULL WHERE userID = ?",
             [hashedPassword, userID]
         );
@@ -411,7 +400,6 @@ app.post('/api_v2/reset-password', async (req, res) => {
 
 
 ///////////////////////////////////////////////////////////// user Manage /////////////////////////////////////////////////////////////
-
 
 
 // API Show All user
@@ -467,7 +455,7 @@ app.get('/api_v2/user/:id', async function (req, res) {
     `;
 
     try {
-        const [rows] = await db.promise().query(sql, [id]);
+        const [rows] = await db.query(sql, [id]);
         
         // ตรวจสอบให้แน่ใจว่า rows มีข้อมูล
         if (rows && rows.length > 0) {
@@ -510,7 +498,7 @@ app.get('/api_v2/profile/:id', async function (req, res) {
 
     try {
         // เรียกใช้ query และตรวจสอบผลลัพธ์
-        const [rows] = await db.promise().query(sql, [id]);
+        const [rows] = await db.query(sql, [id]);
         console.log('Database query result:', rows); // ตรวจสอบผลลัพธ์ใน console
 
         // ตรวจสอบให้แน่ใจว่า rows มีข้อมูล
@@ -541,7 +529,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
 
     try {
         // Fetch current user data
-        const [userResult] = await db.promise().query("SELECT * FROM user WHERE userID = ?", [id]);
+        const [userResult] = await db.query("SELECT * FROM user WHERE userID = ?", [id]);
         if (userResult.length === 0) {
             return res.status(404).send({ message: "ไม่พบผู้ใช้ที่ต้องการอัปเดต", status: false });
         }
@@ -571,7 +559,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         // Translate gender name to ID
         let genderID = currentuser.GenderID;
         if (gender && gender !== '') {
-            const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
+            const [genderResult] = await db.query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
             if (genderResult.length === 0) {
                 return res.status(404).send({ message: "ไม่พบเพศที่ระบุ", status: false });
             }
@@ -581,7 +569,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         // Translate interestGender name to ID
         let interestGenderID = currentuser.InterestGenderID;
         if (interestGender && interestGender !== '') {
-            const [interestGenderResult] = await db.promise().query("SELECT interestGenderID FROM interestgender WHERE interestGenderName = ?", [interestGender]);
+            const [interestGenderResult] = await db.query("SELECT interestGenderID FROM interestgender WHERE interestGenderName = ?", [interestGender]);
             if (interestGenderResult.length === 0) {
                 return res.status(404).send({ message: "ไม่พบเพศที่สนใจที่ระบุ", status: false });
             }
@@ -591,7 +579,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         // Translate education name to ID
         let educationID = currentuser.educationID;
         if (education && education !== '') {
-            const [educationResult] = await db.promise().query("SELECT EducationID FROM education WHERE EducationName = ?", [education]);
+            const [educationResult] = await db.query("SELECT EducationID FROM education WHERE EducationName = ?", [education]);
             if (educationResult.length === 0) {
                 return res.status(404).send({ message: "ไม่พบการศึกษาที่ระบุ", status: false });
             }
@@ -601,7 +589,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         // Translate goal name to ID
         let goalID = currentuser.goalID;
         if (goal && goal !== '') {
-            const [goalResult] = await db.promise().query("SELECT goalID FROM goal WHERE goalName = ?", [goal]);
+            const [goalResult] = await db.query("SELECT goalID FROM goal WHERE goalName = ?", [goal]);
             if (goalResult.length === 0) {
                 return res.status(404).send({ message: "ไม่พบเป้าหมายที่ระบุ", status: false });
             }
@@ -614,18 +602,18 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
             SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, GenderID = ?, InterestGenderID = ?, height = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?
             WHERE userID = ?
         `;
-        await db.promise().query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, home, DateBirth, educationID, goalID, id]);
+        await db.query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, home, DateBirth, educationID, goalID, id]);
 
         // Update preferences in userpreferences table
         if (preferences && Array.isArray(preferences)) {
             // ลบ preference เก่าทั้งหมดของผู้ใช้
-            await db.promise().query("DELETE FROM userpreferences WHERE userID = ?", [id]);
+            await db.query("DELETE FROM userpreferences WHERE userID = ?", [id]);
 
             // เพิ่ม preference ใหม่
             for (const preference of preferences) {
-                const [preferenceResult] = await db.promise().query("SELECT PreferenceID FROM preferences WHERE PreferenceNames = ?", [preference]);
+                const [preferenceResult] = await db.query("SELECT PreferenceID FROM preferences WHERE PreferenceNames = ?", [preference]);
                 if (preferenceResult.length > 0) {
-                    await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceResult[0].PreferenceID]);
+                    await db.query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceResult[0].PreferenceID]);
                 }
             }
         }
@@ -650,7 +638,7 @@ app.post('/api_v2/user/update_preferences/:id', async function (req, res) {
         }
 
         // ลบ preferences เก่าของผู้ใช้ในฐานข้อมูล
-        await db.promise().query("DELETE FROM userpreferences WHERE userID = ?", [id]);
+        await db.query("DELETE FROM userpreferences WHERE userID = ?", [id]);
 
         // แปลง comma-separated string เป็น array
         const preferencesArray = preferences.split(",");
@@ -663,13 +651,13 @@ app.post('/api_v2/user/update_preferences/:id', async function (req, res) {
             }
 
             // ตรวจสอบว่า PreferenceID มีอยู่ในตาราง preferences หรือไม่
-            const [preferenceExists] = await db.promise().query("SELECT PreferenceID FROM preferences WHERE PreferenceID = ?", [preferenceIDNumber]);
+            const [preferenceExists] = await db.query("SELECT PreferenceID FROM preferences WHERE PreferenceID = ?", [preferenceIDNumber]);
             if (preferenceExists.length === 0) {
                 return res.status(404).send({ message: `ไม่พบ PreferenceID: ${preferenceIDNumber}`, status: false });
             }
 
             // เพิ่มข้อมูลในตาราง userpreferences
-            await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceIDNumber]);
+            await db.query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceIDNumber]);
         }
 
         res.send({ message: "Preferences ถูกอัปเดตเรียบร้อย", status: true });
@@ -690,7 +678,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             return res.status(400).send({ message: "username ไม่สามารถเว้นว่างได้", status: false });
         }
 
-        const [userResult] = await db.promise().query("SELECT * FROM user WHERE userID = ?", [id]);
+        const [userResult] = await db.query("SELECT * FROM user WHERE userID = ?", [id]);
         if (userResult.length === 0) {
             return res.status(404).send({ message: "ไม่พบผู้ใช้ที่ต้องการอัปเดต", status: false });
         }
@@ -698,7 +686,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
         const currentuser = userResult[0];
         let genderID = currentuser.GenderID;
         if (gender) {
-            const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
+            const [genderResult] = await db.query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
             if (genderResult.length > 0) {
                 genderID = genderResult[0].GenderID;
             }
@@ -706,7 +694,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         let interestGenderID = currentuser.InterestGenderID;
         if (interestGender) {
-            const [interestGenderResult] = await db.promise().query("SELECT interestGenderID FROM interestgender WHERE interestGenderName = ?", [interestGender]);
+            const [interestGenderResult] = await db.query("SELECT interestGenderID FROM interestgender WHERE interestGenderName = ?", [interestGender]);
             if (interestGenderResult.length > 0) {
                 interestGenderID = interestGenderResult[0].interestGenderID;
             }
@@ -714,7 +702,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         let educationID = currentuser.educationID;
         if (education) {
-            const [educationResult] = await db.promise().query("SELECT EducationID FROM education WHERE EducationName = ?", [education]);
+            const [educationResult] = await db.query("SELECT EducationID FROM education WHERE EducationName = ?", [education]);
             if (educationResult.length > 0) {
                 educationID = educationResult[0].EducationID;
             }
@@ -722,19 +710,19 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         let goalID = currentuser.goalID;
         if (goal) {
-            const [goalResult] = await db.promise().query("SELECT goalID FROM goal WHERE goalName = ?", [goal]);
+            const [goalResult] = await db.query("SELECT goalID FROM goal WHERE goalName = ?", [goal]);
             if (goalResult.length > 0) {
                 goalID = goalResult[0].goalID;
             }
         }
 
         if (preferences && Array.isArray(preferences)) {
-            await db.promise().query("DELETE FROM userpreferences WHERE userID = ?", [id]);
+            await db.query("DELETE FROM userpreferences WHERE userID = ?", [id]);
 
             for (const preference of preferences) {
-                const [preferenceResult] = await db.promise().query("SELECT PreferenceID FROM preferences WHERE PreferenceNames = ?", [preference]);
+                const [preferenceResult] = await db.query("SELECT PreferenceID FROM preferences WHERE PreferenceNames = ?", [preference]);
                 if (preferenceResult.length > 0) {
-                    await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceResult[0].PreferenceID]);
+                    await db.query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [id, preferenceResult[0].PreferenceID]);
                 }
             }
         }
@@ -762,7 +750,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             UPDATE user 
             SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?
             WHERE userID = ?`;
-        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, home, dateBirth, educationID, goalID, id]);
+        await db.query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, home, dateBirth, educationID, goalID, id]);
 
         const imageUrl = currentImageFile ? `${req.protocol}://${req.get('host')}/assets/user/${currentImageFile}` : null;
 
@@ -794,16 +782,16 @@ app.delete('/api_v2/user/:id', async function (req, res) {
 
     try {
         // ลบข้อมูลที่เกี่ยวข้องกับผู้ใช้ในแต่ละตาราง
-        await db.promise().query(sqlDeleteuserReport, [id, id]);
-        await db.promise().query(sqlDeleteBlockedChats, [id, id]);
-        await db.promise().query(sqlDeleteLikes, [id, id]);
-        await db.promise().query(sqlDeleteDislikes, [id, id]);
-        await db.promise().query(sqlDeleteChats, [id, id]);
-        await db.promise().query(sqlDeleteMatches, [id, id]);
-        await db.promise().query(sqlDeleteDeletedChats, [id]);
+        await db.query(sqlDeleteuserReport, [id, id]);
+        await db.query(sqlDeleteBlockedChats, [id, id]);
+        await db.query(sqlDeleteLikes, [id, id]);
+        await db.query(sqlDeleteDislikes, [id, id]);
+        await db.query(sqlDeleteChats, [id, id]);
+        await db.query(sqlDeleteMatches, [id, id]);
+        await db.query(sqlDeleteDeletedChats, [id]);
 
         // ลบข้อมูลผู้ใช้จากตาราง user
-        const [deleteResult] = await db.promise().query(sqlDeleteuser, [id]);
+        const [deleteResult] = await db.query(sqlDeleteuser, [id]);
 
         if (deleteResult.affectedRows > 0) {
             res.send({ message: "ลบข้อมูลผู้ใช้สำเร็จ", status: true });
@@ -1129,92 +1117,131 @@ app.get('/api_v2/likedbyme', (req, res) => {
     });
 });
 
-// API user Detail
-app.post('/api_v2/user/detail', async (req, res) => {
- const { userID, viewerUserID } = req.body || {};
+app.post('/api_v2/user/detail', requireAuth, async (req, res) => {
+  const viewerID = req.user.userID;
+  const { targetUserID } = req.body || {};
+  if (!targetUserID) return res.status(400).json({ message: "กรุณาส่ง targetUserID ใน request body" });
 
-  if (!userID) {
-    return res.status(400).json({ message: "กรุณาส่ง userID ใน request body" });
-  }
-
-  // ดึงพิกัดล่าสุดของ "user เป้าหมาย" และ "viewer" ออกมาเพื่อคำนวณฝั่ง JS
   const sql = `
     SELECT 
       u.UserID, u.nickname, u.GenderID, u.DateBirth, u.imageFile, u.verify,
 
-      -- พิกัด viewer (อาจเป็น NULL ถ้าไม่ส่ง viewerUserID)
       me.latitude   AS me_lat,
       me.longitude  AS me_lon,
 
-      -- พิกัดล่าสุดของ user เป้าหมาย
       loc.latitude  AS user_lat,
       loc.longitude AS user_lon,
 
+      /* ความชอบของ target (ล่าสุด 3) -> JSON array (string) */
       COALESCE(
         (
-          SELECT JSON_ARRAYAGG(p.PreferenceNames)
-          FROM (
-            SELECT up.PreferenceID
-            FROM userpreferences up
-            WHERE up.UserID = u.UserID
-            ORDER BY up.created_at DESC
-            LIMIT 3
-          ) latest_up
-          JOIN preferences p ON p.PreferenceID = latest_up.PreferenceID
+          SELECT CONCAT(
+            '[',
+            GROUP_CONCAT(
+              JSON_QUOTE(p.PreferenceNames)
+              ORDER BY up.created_at DESC
+              SEPARATOR ','
+            ),
+            ']'
+          )
+          FROM userpreferences up
+          JOIN preferences p ON p.PreferenceID = up.PreferenceID
+          WHERE up.UserID = u.UserID
+          ORDER BY up.created_at DESC
+          LIMIT 3
         ),
-        JSON_ARRAY()
-      ) AS preferences
+        '[]'
+      ) AS preferences,
+
+      /* ความชอบที่ตรงกับ viewer -> JSON array (string) */
+      COALESCE(
+        (
+          SELECT CONCAT(
+            '[',
+            GROUP_CONCAT(
+              JSON_QUOTE(p.PreferenceNames)
+              ORDER BY up.created_at DESC
+              SEPARATOR ','
+            ),
+            ']'
+          )
+          FROM userpreferences up
+          JOIN preferences p ON p.PreferenceID = up.PreferenceID
+          WHERE up.UserID = u.UserID
+            AND up.PreferenceID IN (
+              SELECT upv.PreferenceID
+              FROM userpreferences upv
+              WHERE upv.UserID = ?              /* #1 viewerID */
+              ORDER BY upv.created_at DESC
+              /* ถ้าต้องการ limit ชุดของ viewer ก็เติม LIMIT 3 ได้ */
+            )
+          ORDER BY up.created_at DESC
+          LIMIT 3
+        ),
+        '[]'
+      ) AS shared_preferences,
+
+      /* จำนวนความชอบที่ตรงกัน (นับ DISTINCT) */
+      (
+        SELECT COUNT(DISTINCT up.PreferenceID)
+        FROM userpreferences up
+        WHERE up.UserID = u.UserID
+          AND up.PreferenceID IN (
+            SELECT upv.PreferenceID
+            FROM userpreferences upv
+            WHERE upv.UserID = ?              /* #2 viewerID */
+          )
+      ) AS shared_count
 
     FROM \`user\` u
 
-    /* พิกัดล่าสุดของ user เป้าหมาย */
+    /* พิกัดล่าสุดของ target */
     LEFT JOIN (
       SELECT l.userID, l.latitude, l.longitude
       FROM location l
       JOIN (
-        SELECT userID, MAX(timestamp) AS ts
+        SELECT userID, MAX(\`timestamp\`) AS ts
         FROM location
         GROUP BY userID
-      ) t ON t.userID = l.userID AND t.ts = l.timestamp
+      ) t ON t.userID = l.userID AND t.ts = l.\`timestamp\`
     ) loc ON loc.userID = u.UserID
 
-    /* พิกัดล่าสุดของผู้ชม (viewer) */
+    /* พิกัดล่าสุดของ viewer */
     LEFT JOIN (
       SELECT l.latitude, l.longitude
       FROM location l
-      WHERE l.userID = ?
-      ORDER BY l.timestamp DESC
+      WHERE l.userID = ?                       /* #3 viewerID */
+      ORDER BY l.\`timestamp\` DESC
       LIMIT 1
     ) me ON 1=1
 
-    WHERE u.UserID = ?;
+    WHERE u.UserID = ?;                        /* #4 targetUserID */
   `;
 
   try {
-    const rows = await query(sql, [viewerUserID || null, userID]);
-    if (!rows?.length) {
-      return res.status(404).json({ message: "User not found." });
-    }
+    // ลำดับพารามิเตอร์ต้องตรงกับ ? ใน SQL ข้างบน
+    const params = [viewerID, viewerID, viewerID, targetUserID];
+    const [rows] = await db.query(sql, params);
+
+    if (!rows?.length) return res.status(404).json({ message: "User not found." });
 
     const row = rows[0];
 
-    // preferences อาจถูกคืนเป็นสตริงในบางไดรเวอร์ MySQL
+    // parse สตริง JSON -> array
     if (typeof row.preferences === 'string') {
       try { row.preferences = JSON.parse(row.preferences); } catch { row.preferences = []; }
     }
-
-    // คำนวณระยะทางด้วย Haversine (ถ้ามีพิกัดครบ)
-    let distance_km = null;
-    if (
-      row.me_lat != null && row.me_lon != null &&
-      row.user_lat != null && row.user_lon != null
-    ) {
-      distance_km = haversine(row.me_lat, row.me_lon, row.user_lat, row.user_lon);
-      distance_km = Number(distance_km.toFixed(2));
+    if (typeof row.shared_preferences === 'string') {
+      try { row.shared_preferences = JSON.parse(row.shared_preferences); } catch { row.shared_preferences = []; }
     }
 
-    // จัดรูปผลลัพธ์ (ซ่อนพิกัดภายใน ถ้าไม่อยากส่งออก)
-    const out = {
+    // ระยะทาง (คำนวณฝั่ง JS)
+    let distance_km = null;
+    if (row.me_lat != null && row.me_lon != null && row.user_lat != null && row.user_lon != null) {
+      distance_km = Number(haversine(row.me_lat, row.me_lon, row.user_lat, row.user_lon).toFixed(2));
+    }
+
+    return res.json({
       UserID: row.UserID,
       nickname: row.nickname,
       GenderID: row.GenderID,
@@ -1223,9 +1250,9 @@ app.post('/api_v2/user/detail', async (req, res) => {
       verify: row.verify,
       distance_km,
       preferences: row.preferences,
-    };
-
-    return res.json(out);
+      shared_preferences: row.shared_preferences,
+      shared_count: row.shared_count,
+    });
   } catch (err) {
     console.error('Error fetching user detail:', err);
     return res.status(500).json({ message: "Internal server error." });
@@ -1308,13 +1335,13 @@ app.post('/api_v2/add-location', requireAuth, async (req, res) => {
 
   try {
     // 1. ตรวจสอบว่า User มีในฐานข้อมูลหรือไม่
-    const [users] = await db.promise().query('SELECT * FROM user WHERE userID = ?', [userID]);
+    const [users] = await db.query('SELECT * FROM user WHERE userID = ?', [userID]);
     if (users.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // 2. เพิ่มข้อมูล location (สมมุติว่ามีตารางชื่อ location)
-    const [result] = await db.promise().query(
+    const [result] = await db.query(
       'INSERT INTO location (userID, latitude, longitude) VALUES (?, ?, ?)',
       [userID, latitude, longitude]
     );
