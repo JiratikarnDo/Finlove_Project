@@ -116,10 +116,12 @@ function requireAuth(req, res, next) {
   const token = h.startsWith("Bearer ") ? h.slice(7) : null;
   if (!token) return res.status(401).json({ message: "missing token" });
   try {
-    const payload = jwt.verify(token, process.env.ACCESS_SECRET);
-    req.viewerID = payload.userID;
-    next();
-  } catch {
+    const payload = jwt.verify(token, process.env.SECRET_KEY);
+    // ให้มีทั้งสองแบบกันพัง
+    req.user = payload.userID ? { userID: payload.userID, ...payload } : payload;
+    req.viewerID = req.user.userID;
+    return next();
+  } catch (err) {
     return res.status(401).json({ message: "invalid or expired token" });
   }
 }
@@ -1130,26 +1132,27 @@ app.get('/api_v2/likedbyme', (req, res) => {
 });
 
 // API user Detail
-app.post('/api_v2/user/detail', async (req, res) => {
- const { userID, viewerUserID } = req.body || {};
+app.post('/api_v2/user/detail', requireAuth ,async (req, res) => {
+    const viewerID = req.user.userID;
+    const { userID } = req.body || {};
 
   if (!userID) {
     return res.status(400).json({ message: "กรุณาส่ง userID ใน request body" });
   }
 
-  // ดึงพิกัดล่าสุดของ "user เป้าหมาย" และ "viewer" ออกมาเพื่อคำนวณฝั่ง JS
   const sql = `
     SELECT 
       u.UserID, u.nickname, u.GenderID, u.DateBirth, u.imageFile, u.verify,
 
-      -- พิกัด viewer (อาจเป็น NULL ถ้าไม่ส่ง viewerUserID)
+      /* พิกัด viewer (อาจเป็น NULL ถ้าไม่ส่ง viewerID) */
       me.latitude   AS me_lat,
       me.longitude  AS me_lon,
 
-      -- พิกัดล่าสุดของ user เป้าหมาย
+      /* พิกัดล่าสุดของ user เป้าหมาย */
       loc.latitude  AS user_lat,
       loc.longitude AS user_lon,
 
+      /* ความชอบของ target (ล่าสุด 3) -> JSON array */
       COALESCE(
         (
           SELECT JSON_ARRAYAGG(p.PreferenceNames)
@@ -1163,7 +1166,41 @@ app.post('/api_v2/user/detail', async (req, res) => {
           JOIN preferences p ON p.PreferenceID = latest_up.PreferenceID
         ),
         JSON_ARRAY()
-      ) AS preferences
+      ) AS preferences,
+
+      /* ความชอบที่ตรงกับ viewer (ล่าสุด 3) -> JSON array */
+      COALESCE(
+        (
+          SELECT JSON_ARRAYAGG(p.PreferenceNames)
+          FROM (
+            SELECT up.PreferenceID
+            FROM userpreferences up
+            WHERE up.UserID = u.UserID
+              AND up.PreferenceID IN (
+                SELECT upv.PreferenceID
+                FROM userpreferences upv
+                WHERE upv.UserID = ?
+                /* ถ้าต้องการจำกัดชุดฝั่ง viewer ให้ใส่ ORDER BY + LIMIT ได้ */
+              )
+            ORDER BY up.created_at DESC
+            LIMIT 3
+          ) tgt_shared
+          JOIN preferences p ON p.PreferenceID = tgt_shared.PreferenceID
+        ),
+        JSON_ARRAY()
+      ) AS shared_preferences,
+
+      /* จำนวนความชอบที่ตรงกันทั้งหมด (distinct) */
+      (
+        SELECT COUNT(DISTINCT up.PreferenceID)
+        FROM userpreferences up
+        WHERE up.UserID = u.UserID
+          AND up.PreferenceID IN (
+            SELECT upv.PreferenceID
+            FROM userpreferences upv
+            WHERE upv.UserID = ?
+          )
+      ) AS shared_count
 
     FROM \`user\` u
 
@@ -1172,10 +1209,10 @@ app.post('/api_v2/user/detail', async (req, res) => {
       SELECT l.userID, l.latitude, l.longitude
       FROM location l
       JOIN (
-        SELECT userID, MAX(timestamp) AS ts
+        SELECT userID, MAX(\`timestamp\`) AS ts
         FROM location
         GROUP BY userID
-      ) t ON t.userID = l.userID AND t.ts = l.timestamp
+      ) t ON t.userID = l.userID AND t.ts = l.\`timestamp\`
     ) loc ON loc.userID = u.UserID
 
     /* พิกัดล่าสุดของผู้ชม (viewer) */
@@ -1183,7 +1220,7 @@ app.post('/api_v2/user/detail', async (req, res) => {
       SELECT l.latitude, l.longitude
       FROM location l
       WHERE l.userID = ?
-      ORDER BY l.timestamp DESC
+      ORDER BY l.\`timestamp\` DESC
       LIMIT 1
     ) me ON 1=1
 
@@ -1191,16 +1228,24 @@ app.post('/api_v2/user/detail', async (req, res) => {
   `;
 
   try {
-    const rows = await query(sql, [viewerUserID || null, userID]);
+    // ลำดับ params ต้องตรงกับ ? ใน SQL:
+    // 1) viewerID (shared_preferences), 2) viewerID (shared_count),
+    // 3) viewerID (me location), 4) target userID
+    const params = [viewerID, viewerID, viewerID, userID];
+    const rows = await query(sql, params);
+
     if (!rows?.length) {
       return res.status(404).json({ message: "User not found." });
     }
 
     const row = rows[0];
 
-    // preferences อาจถูกคืนเป็นสตริงในบางไดรเวอร์ MySQL
+    // บางไดรเวอร์อาจส่ง JSON กลับมาเป็นสตริง -> parse ให้เป็น array
     if (typeof row.preferences === 'string') {
       try { row.preferences = JSON.parse(row.preferences); } catch { row.preferences = []; }
+    }
+    if (typeof row.shared_preferences === 'string') {
+      try { row.shared_preferences = JSON.parse(row.shared_preferences); } catch { row.shared_preferences = []; }
     }
 
     // คำนวณระยะทางด้วย Haversine (ถ้ามีพิกัดครบ)
@@ -1209,11 +1254,10 @@ app.post('/api_v2/user/detail', async (req, res) => {
       row.me_lat != null && row.me_lon != null &&
       row.user_lat != null && row.user_lon != null
     ) {
-      distance_km = haversine(row.me_lat, row.me_lon, row.user_lat, row.user_lon);
-      distance_km = Number(distance_km.toFixed(2));
+      distance_km = Number(haversine(row.me_lat, row.me_lon, row.user_lat, row.user_lon).toFixed(2));
     }
 
-    // จัดรูปผลลัพธ์ (ซ่อนพิกัดภายใน ถ้าไม่อยากส่งออก)
+    // shape output ให้เหมือนอันบน
     const out = {
       UserID: row.UserID,
       nickname: row.nickname,
@@ -1223,6 +1267,8 @@ app.post('/api_v2/user/detail', async (req, res) => {
       verify: row.verify,
       distance_km,
       preferences: row.preferences,
+      shared_preferences: row.shared_preferences,
+      shared_count: row.shared_count ?? 0,
     };
 
     return res.json(out);
@@ -1231,6 +1277,7 @@ app.post('/api_v2/user/detail', async (req, res) => {
     return res.status(500).json({ message: "Internal server error." });
   }
 });
+
 
 
 // API Check Match
