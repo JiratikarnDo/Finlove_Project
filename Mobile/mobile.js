@@ -1,28 +1,48 @@
-const express = require('express');
-const mysql = require('mysql2');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const nodemailer = require('nodemailer');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
+import express from "express";
+import mysql from "mysql2";
+import bcrypt from "bcrypt";
+import nodemailer from "nodemailer";
+import multer from "multer";
+import path, { dirname } from "path";
+import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
+import { fileURLToPath } from "url";
+import { sendMail } from "./sendMail.js";
+import crypto from "crypto";
 
-const jwt = require('jsonwebtoken');
-const SECRET_KEY = process.env.SECRET_KEY;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
+
 const app = express();
 const saltRounds = 10;
-const bodyParser = require('body-parser');
 
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'assets/user/');  
-    },
-    filename: function (req, file, cb) {
-        cb(null, file.originalname);
-    }
+  destination: function (req, file, cb) {
+    cb(null, "assets/user/");
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.originalname);
+  },
 });
+
+const upload = multer({ storage: storage });
+const router = express.Router();
+
+const db = mysql.createConnection({
+  host: process.env.DATABASE_HOST,
+  user: process.env.DATABASE_USER,
+  password: process.env.DATABASE_PASSWORD,
+  database: process.env.DATABASE_NAME,
+});
+
+
+import helmet from "helmet";
+
 
 
 //////////////////////////////// ลบส่วนนี้หาก manual ////////////////////////////
@@ -37,28 +57,10 @@ const storage = multer.diskStorage({
 ///////////////////////////////////////////////////////////////////////////////
 
 
-const upload = multer({ storage: storage });
-
-const db = mysql.createConnection({
-    host: process.env.DATABASE_HOST,
-    user: process.env.DATABASE_USER,
-    password: process.env.DATABASE_PASSWORD,
-    database: process.env.DATABASE_NAME
-});
-
-const config = {
-    secretKey: 'UX23Y24%@&2aMb',
-    serverPort: 8501,
-    emailService: {
-        service: 'gmail',
-        port: 587,
-        user: 'pedza507@gmail.com',
-        pass: 'dyon lkfk cyzf bsqq'
-    }
-};
 
 db.connect();
 
+app.use(helmet());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets/user', express.static(path.join(__dirname, 'web', 'front-end', 'assets', 'employee')));
@@ -81,8 +83,15 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * c; // กิโลเมตร
 }
 
+function generateOTP(length = 6) {
+  const digits = '0123456789';
+  let otp = '';
+  for (let i = 0; i < length; i++) {
+    otp += digits[Math.floor(Math.random() * 10)];
+  }
+  return otp;
+}
 
-// Nodemailer Transporter Configuration
 const transporter = nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE,
     host: 'smtp.gmail.com',
@@ -93,17 +102,6 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS,
     },
 });
-
-const helmet = require('helmet');
-app.use(helmet());
-
-const rateLimit = require('express-rate-limit');
-
-const loginLimiter = rateLimit({
-    windowMs: 600 * 1000, // เริ่มต้นล็อก 1 ชั่วโมง
-    max: 5, // Limit each IP to 5 requests per windowMs
-    message: "Too many login attempts from this IP, please try again after 10 seconds"
-}); 
 
 // กำหนดระยะเวลาว่ากี่นาทีหมดเวลา
 function signAccess(payload) {
@@ -124,16 +122,6 @@ function requireAuth(req, res, next) {
   } catch (err) {
     return res.status(401).json({ message: "invalid or expired token" });
   }
-}
-
-function computeLockSeconds(failed) {
-  // เริ่มล็อกตั้งแต่ครั้งที่ 5 และ “ขั้นบันได” แบบเดิม
-  const steps = [60, 300, 600, 1200, 1800]; // วินาที: 1m,5m,10m,20m,30m
-  const base = 5; // เริ่มล็อคเมื่อ failed >= 5
-  if (failed < base) return 0;
-
-  const idx = Math.min(failed - base, steps.length - 1);
-  return steps[idx];
 }
 
 app.post('/api_v2/login', async (req, res) => {
@@ -284,6 +272,51 @@ app.post('/api_v2/register8', upload.single('imageFile'), async function(req, re
     }
 });
 
+// สร้าง OTP + ส่งเมล 
+app.post("/api_v2/request-otp", (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: "Email is required" });
+  }
+
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 นาที
+  const hash = crypto.createHash("sha256").update(code).digest("hex");
+
+  // ลบ OTP เก่าก่อน
+  db.query("DELETE FROM user_otp WHERE email = ?", [email], (err) => {
+    if (err) {
+      console.error("DB delete error:", err);
+      return res.status(500).json({ message: "DB error" });
+    }
+
+    // แทรก OTP ใหม่
+    db.query(
+      "INSERT INTO user_otp (email, otp_hash, expires_at) VALUES (?,?,?)",
+      [email, hash, expiresAt],
+      async (err) => {
+        if (err) {
+          console.error("DB insert error:", err);
+          return res.status(500).json({ message: "DB error" });
+        }
+
+        try {
+          // ส่งอีเมล
+          await sendMail(
+            email,
+            "รหัสยืนยัน Finlove",
+            `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
+          );
+          res.json({ message: "OTP sent successfully" });
+        } catch (mailErr) {
+          console.error("Send mail error:", mailErr);
+          res.status(500).json({ message: "Failed to send OTP" });
+        }
+      }
+    );
+  });
+});
+
 
 ///////////////////////////////////////////////////////////// Forgot Password /////////////////////////////////////////////////////////////
 
@@ -332,8 +365,6 @@ _
     }
 });
 
-
-
 // API Verify PIN
 app.post('/api_v2/verify-pin', async (req, res) => {
     const { email, pin } = req.body;
@@ -364,7 +395,6 @@ app.post('/api_v2/verify-pin', async (req, res) => {
         res.status(500).send("เกิดข้อผิดพลาดในการยืนยัน PIN"); // ส่งข้อความภาษาไทยโดยตรง
     }
 });
-
 
 
 // API Reset Password
@@ -1228,11 +1258,8 @@ app.post('/api_v2/user/detail', requireAuth ,async (req, res) => {
   `;
 
   try {
-    // ลำดับ params ต้องตรงกับ ? ใน SQL:
-    // 1) viewerID (shared_preferences), 2) viewerID (shared_count),
-    // 3) viewerID (me location), 4) target userID
     const params = [viewerID, viewerID, viewerID, userID];
-    const rows = await query(sql, params);
+    const [rows] = await db.promise().query(sql, params);
 
     if (!rows?.length) {
       return res.status(404).json({ message: "User not found." });
@@ -1240,7 +1267,6 @@ app.post('/api_v2/user/detail', requireAuth ,async (req, res) => {
 
     const row = rows[0];
 
-    // บางไดรเวอร์อาจส่ง JSON กลับมาเป็นสตริง -> parse ให้เป็น array
     if (typeof row.preferences === 'string') {
       try { row.preferences = JSON.parse(row.preferences); } catch { row.preferences = []; }
     }
@@ -1249,6 +1275,7 @@ app.post('/api_v2/user/detail', requireAuth ,async (req, res) => {
     }
 
     // คำนวณระยะทางด้วย Haversine (ถ้ามีพิกัดครบ)
+    console.log("me:", row.me_lat, row.me_lon, "target:", row.user_lat, row.user_lon);
     let distance_km = null;
     if (
       row.me_lat != null && row.me_lon != null &&
@@ -1431,8 +1458,6 @@ app.get('/api_v2/matches/:userID', (req, res) => {
     });
 });
 
-
-
 // API Chat (ส่งข้อความ)
 app.post('/api_v2/chats/:matchID', (req, res) => {
     const { matchID } = req.params;
@@ -1467,8 +1492,6 @@ app.post('/api_v2/chats/:matchID', (req, res) => {
         });
     });
 });
-
-
 
 // API Show Chat
 app.get('/api_v2/chats/:matchID', (req, res) => {
