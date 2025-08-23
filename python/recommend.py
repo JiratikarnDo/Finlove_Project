@@ -6,8 +6,12 @@ import os
 import warnings
 import numpy as np
 import math
+import os, mimetypes
 
-IMAGE_FOLDER = os.path.join(os.getcwd(), 'assets', 'user')
+IMAGE_FOLDER = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'assets', 'user')
+)
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
 
 warnings.filterwarnings("ignore")
 
@@ -254,20 +258,18 @@ def recommend(id):
 
 
 
-@app.route('/ai_v2/user/<filename>', methods=['GET'])
+@app.route('/ai_v2/user/<path:filename>', methods=['GET'])  # << เปลี่ยนเป็น <path:filename>
 def get_user_image(filename):
+    safe = os.path.basename(filename)  # กัน path traversal
+    image_path = os.path.join(IMAGE_FOLDER, safe)
 
-    # Full path to the image file
-    image_path = os.path.join(IMAGE_FOLDER, filename)
-
-    # Check if the file exists
-    if os.path.exists(image_path):
-        # Return the image file to the client
-        return send_file(image_path, mimetype='image/jpeg')
-    else:
-        # If the file is not found, return 404
+    if not os.path.isfile(image_path):
         return jsonify({"error": "File not found"}), 404
 
+    mime = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+    resp = send_file(image_path, mimetype=mime)
+    resp.headers["Cache-Control"] = "public, max-age=86400, immutable"
+    return resp
 # Create Web server
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=6502)

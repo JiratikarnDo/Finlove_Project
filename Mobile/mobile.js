@@ -21,13 +21,17 @@ dotenv.config({ path: path.resolve(__dirname, "../.env") });
 const app = express();
 const saltRounds = 10;
 
+fs.mkdirSync(path.resolve(__dirname, "../assets/user"), { recursive: true });
+
+// Multer: จาก "assets/user/" → ใช้ absolute path
+// === กำหนดโฟลเดอร์เป้าหมายให้เป็น absolute เหมือนกันทั้ง "เซฟ" และ "เสิร์ฟ" ===
+const USER_ASSETS_DIR = path.resolve(__dirname, "../assets/user");
+fs.mkdirSync(USER_ASSETS_DIR, { recursive: true });
+
+// Multer: ใช้โฟลเดอร์เดียวกัน
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, "assets/user/");
-  },
-  filename: function (req, file, cb) {
-    cb(null, file.originalname);
-  },
+  destination: (req, file, cb) => cb(null, USER_ASSETS_DIR),
+  filename: (req, file, cb) => cb(null, file.originalname),
 });
 
 const upload = multer({ storage: storage });
@@ -63,7 +67,7 @@ db.connect();
 app.use(helmet());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/assets/user', express.static(path.join(__dirname, 'assets', 'user')));
+app.use("/assets/user", express.static(USER_ASSETS_DIR));
 
 // สูตรคำนวณ ระยะห่างเป็น KM
 function haversine(lat1, lon1, lat2, lon2) {
@@ -468,10 +472,8 @@ app.get('/api_v2/user', function(req, res) {
 // API Show All user Image
 app.get('/api_v2/user/image/:filename', function(req, res) {
     //ดึงรูปให้ตรง path
-    const filepath = path.join(__dirname, 'assets', 'user', req.params.filename);
-    res.sendFile(filepath, err => {
-        if (err) res.status(404).json({ error: "File not found" });
-    });
+    const fp = path.join(USER_ASSETS_DIR, path.basename(req.params.filename));
+  res.sendFile(fp, err => err && res.status(404).json({ error: "Image not found" }));
 });
 
 
