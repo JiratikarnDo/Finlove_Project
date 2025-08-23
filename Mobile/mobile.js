@@ -23,12 +23,9 @@ const saltRounds = 10;
 
 fs.mkdirSync(path.resolve(__dirname, "../assets/user"), { recursive: true });
 
-// Multer: จาก "assets/user/" → ใช้ absolute path
-// === กำหนดโฟลเดอร์เป้าหมายให้เป็น absolute เหมือนกันทั้ง "เซฟ" และ "เสิร์ฟ" ===
 const USER_ASSETS_DIR = path.resolve(__dirname, "../assets/user");
 fs.mkdirSync(USER_ASSETS_DIR, { recursive: true });
 
-// Multer: ใช้โฟลเดอร์เดียวกัน
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, USER_ASSETS_DIR),
   filename: (req, file, cb) => cb(null, file.originalname),
@@ -128,45 +125,94 @@ function requireAuth(req, res, next) {
   }
 }
 
-app.post('/api_v2/login', async (req, res) => {
-  const { username, password } = req.body;
-  const sql = "SELECT userID, username, password, isActive FROM user WHERE username = ?";
+function sendOtp(email, cb) {
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 นาที
+  const hash = crypto.createHash("sha256").update(code).digest("hex");
 
-  try {
-    const [rows] = await db.promise().query(sql, [username]);
+  // ลบ OTP เก่า
+  db.query("DELETE FROM user_otp WHERE email = ?", [email], (err) => {
+    if (err) return cb(err);
+
+    // แทรก OTP ใหม่
+    db.query(
+      "INSERT INTO user_otp (email, otp_hash, expires_at, used, created_at) VALUES (?,?,?,?,NOW())",
+      [email, hash, expiresAt, 0],
+      (err2) => {
+        if (err2) return cb(err2);
+
+        // ส่งเมล
+        sendMail(
+          email,
+          "รหัสยืนยัน Finlove",
+          `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
+        )
+          .then(() => cb(null))
+          .catch(cb);
+      }
+    );
+  });
+}
+app.post('/api_v2/login', (req, res) => {
+  const { username, password } = req.body;
+  const sql = "SELECT UserID, username, password, email, isActive, is_verified FROM user WHERE username = ?";
+
+  db.query(sql, [username], (err, rows) => {
+    if (err) {
+      console.error("DB error:", err);
+      return res.status(500).send("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+    }
+
     if (!rows.length) {
       return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
     }
 
     const user = rows[0];
 
-    // เช็คว่าถูกปิดถาวรหรือไม่
+    // 1) ตรวจสอบว่าถูกปิดถาวรไหม
     if (user.isActive === 0) {
       return res.send({ status: false, message: "บัญชีถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ" });
     }
 
-    // ตรวจรหัสผ่าน
-    const ok = await bcrypt.compare(password, user.password);
+    // 2) ตรวจสอบรหัสผ่านก่อน
+    bcrypt.compare(password, user.password, (err, ok) => {
+      if (err) {
+        console.error("bcrypt error:", err);
+        return res.status(500).send({ status: false, message: "เกิดข้อผิดพลาดในการตรวจสอบรหัสผ่าน" });
+      }
 
-    if (ok) {
-      const token = signAccess({ userID: user.userID, username: user.username });
+      if (!ok) {
+        return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
+      }
 
+      // 3) เช็ค is_verified หลังจาก password ถูกต้องแล้ว
+      if (user.is_verified === 0) {
+        sendOtp(user.email, (err2) => {
+          if (err2) {
+            console.error("OTP error:", err2);
+            return res.status(500).json({ status: false, message: "ส่ง OTP ไม่สำเร็จ" });
+          }
+
+          return res.status(403).json({
+            status: false,
+            next: "verify_otp_required",
+            message: "บัญชียังไม่ได้ยืนยัน OTP ใหม่ถูกส่งไปยังอีเมลแล้ว"
+          });
+        });
+        return; // ต้อง return ตรงนี้กัน response ซ้ำ
+      }
+
+      // 4) ถ้าทุกอย่างโอเค → ออก token ให้ login ได้
+      const token = signAccess({ userID: user.UserID, username: user.username });
       return res.send({
         status: true,
         message: "เข้าสู่ระบบสำเร็จ",
-        userID: user.userID,
+        userID: user.UserID,
         token
       });
-    } else {
-      return res.send({ status: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
-    }
-  } catch (err) {
-    console.error('Error during login process:', err);
-    return res.status(500).send("เกิดข้อผิดพลาดในการเชื่อมต่อ");
-  }
+    });
+  });
 });
-
-
 
 // API Logout
 app.post('/api_v2/logout/:id', async (req, res) => {
@@ -213,68 +259,169 @@ app.post('/api_v2/checkusernameEmail', async function(req, res) {
     }
 });
 
+// ---------------- API Register + ส่ง OTP ----------------
+app.post("/api_v2/register8", upload.single("imageFile"), (req, res) => {
+  const {
+    email, username, password, firstname, lastname, nickname,
+    gender, height, phonenumber, home, dateOfBirth,
+    educationID, preferences, goalID, interestGenderID
+  } = req.body;
+  const fileName = req.file ? req.file.filename : null;
+
+  if (!email || !username || !password || !firstname || !lastname || !nickname ||
+      !gender || !height || !phonenumber || !home || !dateOfBirth ||
+      !educationID || !preferences || !goalID || !interestGenderID || !fileName) {
+    return res.status(400).send({ message: "ข้อมูลไม่ครบถ้วน", status: false });
+  }
+
+  // ตรวจอีเมล/username ซ้ำ
+  db.query(
+    "SELECT UserID FROM user WHERE email = ? OR username = ? LIMIT 1",
+    [email, username],
+    (err, rows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send({ message: "DB error", status: false });
+      }
+      if (rows.length > 0) {
+        return res.status(409).send({ message: "อีเมลหรือชื่อผู้ใช้ซ้ำ", status: false });
+      }
+
+      // หา GenderID
+      db.query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender], (err, g) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).send({ message: "DB error", status: false });
+        }
+        if (g.length === 0) {
+          return res.status(404).send({ message: "ไม่พบข้อมูลเพศ", status: false });
+        }
+        const genderID = g[0].GenderID;
+
+        // hash password (bcrypt ใช้ callback ได้)
+        bcrypt.hash(password, saltRounds, (err, hashedPassword) => {
+          if (err) {
+            console.error(err);
+            return res.status(500).send({ message: "Hash error", status: false });
+          }
+
+          // insert user
+        const sqlInsert = `
+            INSERT INTO user (
+                username, password, email, firstname, lastname, nickname,
+                GenderID, height, phonenumber, home, DateBirth,
+                EducationID, goalID, imageFile, interestGenderID, is_verified
+            )
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+            `;
+          db.query(
+            sqlInsert,
+            [username, hashedPassword, email, firstname, lastname, nickname,
+             genderID, height, phonenumber, home, dateOfBirth,
+             educationID, goalID, fileName, interestGenderID],
+            (err, result) => {
+              if (err) {
+                console.error(err);
+                return res.status(500).send({ message: "DB insert error", status: false });
+              }
+              const userID = result.insertId;
+
+              // preferences
+              const preferenceIDs = preferences.split(",").map((id) => parseInt(id));
+              let done = 0;
+              preferenceIDs.forEach((pid) => {
+                db.query(
+                  "INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)",
+                  [userID, pid],
+                  () => {
+                    done++;
+                    if (done === preferenceIDs.length) {
+                      // หลังจาก preferences เสร็จ → ส่ง OTP
+                      sendOtp(email, (err) => {
+                        if (err) {
+                          console.error("OTP error:", err);
+                          return res.status(500).send({ message: "ส่ง OTP ไม่สำเร็จ", status: false });
+                        }
+                        return res.send({
+                          message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
+                          status: true,
+                          next: "verify_otp_required"
+                        });
+                      });
+                    }
+                  }
+                );
+              });
+            }
+          );
+        });
+      });
+    }
+  );
+});
+
 
 // API Register
-app.post('/api_v2/register8', upload.single('imageFile'), async function(req, res) {
-    const { email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID } = req.body;
-    const fileName = req.file ? req.file.filename : null;
+// app.post('/api_v2/register8', upload.single('imageFile'), async function(req, res) {
+//     const { email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID } = req.body;
+//     const fileName = req.file ? req.file.filename : null;
 
-    // ตรวจสอบข้อมูลว่าครบถ้วนหรือไม่
-    if (!email || !username || !password || !firstname || !lastname || !nickname || !gender || !height || !phonenumber || !home || !dateOfBirth || !educationID || !preferences || !goalID || !interestGenderID || !fileName) {
-        console.log("ข้อมูลไม่ครบถ้วน", {
-            email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID, fileName
-        });
-        return res.status(400).send({ "message": "ข้อมูลไม่ครบถ้วน", "status": false });
-    }
+//     // ตรวจสอบข้อมูลว่าครบถ้วนหรือไม่
+//     if (!email || !username || !password || !firstname || !lastname || !nickname || !gender || !height || !phonenumber || !home || !dateOfBirth || !educationID || !preferences || !goalID || !interestGenderID || !fileName) {
+//         console.log("ข้อมูลไม่ครบถ้วน", {
+//             email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID, fileName
+//         });
+//         return res.status(400).send({ "message": "ข้อมูลไม่ครบถ้วน", "status": false });
+//     }
 
-    try {
-        // ตรวจสอบว่าอีเมลหรือชื่อผู้ใช้ซ้ำหรือไม่
-        const [existingUser] = await db.promise().query("SELECT * FROM user WHERE email = ? OR username = ?", [email, username]);
-        if (existingUser.length > 0) {
-            return res.status(409).send({ "message": "อีเมลหรือชื่อผู้ใช้ซ้ำ กรุณาใช้ข้อมูลใหม่", "status": false });
-        }
+//     try {
+//         // ตรวจสอบว่าอีเมลหรือชื่อผู้ใช้ซ้ำหรือไม่
+//         const [existingUser] = await db.promise().query("SELECT * FROM user WHERE email = ? OR username = ?", [email, username]);
+//         if (existingUser.length > 0) {
+//             return res.status(409).send({ "message": "อีเมลหรือชื่อผู้ใช้ซ้ำ กรุณาใช้ข้อมูลใหม่", "status": false });
+//         }
 
-        // ทำการ hash รหัสผ่าน
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
+//         // ทำการ hash รหัสผ่าน
+//         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        // ค้นหา GenderID
-        const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
+//         // ค้นหา GenderID
+//         const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
 
-        if (genderResult.length === 0) {
-            console.log("ไม่พบข้อมูลเพศที่ระบุ");
-            return res.status(404).send({ "message": "ไม่พบข้อมูลเพศที่ระบุ", "status": false });
-        }
+//         if (genderResult.length === 0) {
+//             console.log("ไม่พบข้อมูลเพศที่ระบุ");
+//             return res.status(404).send({ "message": "ไม่พบข้อมูลเพศที่ระบุ", "status": false });
+//         }
 
-        const genderID = genderResult[0].GenderID;
+//         const genderID = genderResult[0].GenderID;
 
-        // Log ข้อมูลก่อนการบันทึกลง database
-        console.log("Inserting data into user: ", {
-            username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID
-        });
+//         // Log ข้อมูลก่อนการบันทึกลง database
+//         console.log("Inserting data into user: ", {
+//             username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID
+//         });
 
-        // บันทึกข้อมูลผู้ใช้
-        const sqlInsert = `
-            INSERT INTO user (username, password, email, firstname, lastname, nickname, GenderID, height, phonenumber, home, DateBirth, EducationID, goalID, imageFile, interestGenderID )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        const [insertResult] = await db.promise().query(sqlInsert, [username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID]);
+//         // บันทึกข้อมูลผู้ใช้
+//         const sqlInsert = `
+//             INSERT INTO user (username, password, email, firstname, lastname, nickname, GenderID, height, phonenumber, home, DateBirth, EducationID, goalID, imageFile, interestGenderID )
+//             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+//         `;
+//         const [insertResult] = await db.promise().query(sqlInsert, [username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID]);
 
-        const userID = insertResult.insertId;
+//         const userID = insertResult.insertId;
 
-        // บันทึก preferences
-        const preferenceIDs = preferences.split(',').map(id => parseInt(id));
-        for (const preferenceID of preferenceIDs) {
-            await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [userID, preferenceID]);
-        }
+//         // บันทึก preferences
+//         const preferenceIDs = preferences.split(',').map(id => parseInt(id));
+//         for (const preferenceID of preferenceIDs) {
+//             await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [userID, preferenceID]);
+//         }
 
-        console.log(`Preferences saved for user ${userID}: `, preferenceIDs);
+//         console.log(`Preferences saved for user ${userID}: `, preferenceIDs);
 
-        res.send({ "message": "ลงทะเบียนสำเร็จ", "status": true });
-    } catch (err) {
-        console.error('Database error:', err);
-        res.status(500).send({ "message": "บันทึกลง FinLove ล้มเหลว", "status": false });
-    }
-});
+//         res.send({ "message": "ลงทะเบียนสำเร็จ", "status": true });
+//     } catch (err) {
+//         console.error('Database error:', err);
+//         res.status(500).send({ "message": "บันทึกลง FinLove ล้มเหลว", "status": false });
+//     }
+// });
 
 // สร้าง OTP + ส่งเมล 
 app.post("/api_v2/request-otp", (req, res) => {
@@ -319,6 +466,57 @@ app.post("/api_v2/request-otp", (req, res) => {
       }
     );
   });
+});
+
+// API ตรวจสอบ verify OTP
+app.post("/api_v2/verify-otp", (req, res) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ success: false, message: "Missing email or otp" });
+  }
+
+  // หา OTP ล่าสุด
+  db.query(
+    "SELECT * FROM user_otp WHERE email = ? AND used = 0 ORDER BY created_at DESC LIMIT 1",
+    [email],(err, results) => {
+      if (err) {
+        console.error("DB error:", err);
+        return res.status(500).json({ success: false, message: "Database error" });
+      }
+
+      if (results.length === 0) {
+        return res.json({ success: false, message: "No OTP found or already used" });
+      }
+
+      const otpRecord = results[0];
+
+      // เช็คการหมดอายุ
+      if (new Date() > otpRecord.expires_at) {
+        return res.json({ success: false, message: "OTP expired" });
+      }
+
+      // เช็ค hash
+      bcrypt.compare(otp, otpRecord.otp_hash, (err, isMatch) => {
+        if (err) {
+          console.error("bcrypt error:", err);
+          return res.status(500).json({ success: false, message: "Server error" });
+        }
+
+        const calc = crypto.createHash("sha256").update(String(otp)).digest("hex");
+        if (calc !== otpRecord.otp_hash) {
+            return res.json({ success:false, message:"Invalid OTP" });
+        }
+
+        // กำหนดเป็นใช้แล้ว == 1
+        db.query("UPDATE user_otp SET used = 1 WHERE id = ?", [otpRecord.id]);
+
+        db.query("UPDATE user SET is_verified = 1 WHERE email = ?", [email]);
+
+        return res.json({ success: true, message: "OTP verified successfully" });
+      });
+    }
+  );
 });
 
 
