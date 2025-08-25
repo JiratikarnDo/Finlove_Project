@@ -264,15 +264,25 @@ app.post("/api_v2/register8", upload.single("imageFile"), (req, res) => {
   const {
     email, username, password, firstname, lastname, nickname,
     gender, height, phonenumber, home, dateOfBirth,
-    educationID, preferences, goalID, interestGenderID
+    educationID, preferences, goalID, interestGenderID, career_id , weight , province
   } = req.body;
   const fileName = req.file ? req.file.filename : null;
 
-  if (!email || !username || !password || !firstname || !lastname || !nickname ||
-      !gender || !height || !phonenumber || !home || !dateOfBirth ||
-      !educationID || !preferences || !goalID || !interestGenderID || !fileName) {
-    return res.status(400).send({ message: "ข้อมูลไม่ครบถ้วน", status: false });
-  }
+if (
+  !email || !username || !password || !firstname || !lastname || !nickname ||
+  !gender || !height || !phonenumber || !home || !dateOfBirth ||
+  !educationID || !preferences || !goalID || !interestGenderID ||
+  career_id === undefined || career_id === null ||
+  weight === undefined || weight === null ||
+  !province || !fileName
+) {
+  console.log('body:', req.body);
+  console.log('file:', req.file);
+  return res.status(400).send({ message: "ข้อมูลไม่ครบถ้วน", status: false });
+
+}
+
+
 
   // ตรวจอีเมล/username ซ้ำ
   db.query(
@@ -310,15 +320,15 @@ app.post("/api_v2/register8", upload.single("imageFile"), (req, res) => {
             INSERT INTO user (
                 username, password, email, firstname, lastname, nickname,
                 GenderID, height, phonenumber, home, DateBirth,
-                EducationID, goalID, imageFile, interestGenderID, is_verified
+                EducationID, goalID, imageFile, interestGenderID, is_verified, career_id, weight, province
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)
             `;
           db.query(
             sqlInsert,
             [username, hashedPassword, email, firstname, lastname, nickname,
              genderID, height, phonenumber, home, dateOfBirth,
-             educationID, goalID, fileName, interestGenderID],
+             educationID, goalID, fileName, interestGenderID, career_id, weight, province],
             (err, result) => {
               if (err) {
                 console.error(err);
@@ -342,6 +352,7 @@ app.post("/api_v2/register8", upload.single("imageFile"), (req, res) => {
                           console.error("OTP error:", err);
                           return res.status(500).send({ message: "ส่ง OTP ไม่สำเร็จ", status: false });
                         }
+                          console.log("OTP sent successfully");
                         return res.send({
                           message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
                           status: true,
