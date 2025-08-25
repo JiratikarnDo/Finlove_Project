@@ -260,16 +260,38 @@ def recommend(id):
 
 @app.route('/ai_v2/user/<path:filename>', methods=['GET'])  # << เปลี่ยนเป็น <path:filename>
 def get_user_image(filename):
-    safe = os.path.basename(filename)  # กัน path traversal
+    safe = os.path.basename(filename)                 # กัน traversal
     image_path = os.path.join(IMAGE_FOLDER, safe)
 
+    # 👉 DEBUG: พิมพ์ path ที่จะเปิด (แค่ช่วง dev)
+    app.logger.info(f"[img] request='{filename}' safe='{safe}' path='{image_path}' exists={os.path.isfile(image_path)}")
+
     if not os.path.isfile(image_path):
+        # 👉 DEBUG: แสดงรายการไฟล์ในโฟลเดอร์สั้น ๆ
+        try:
+            sample = sorted(os.listdir(IMAGE_FOLDER))[:5]
+        except Exception as e:
+            sample = [f"<list failed: {e}>"]
+        app.logger.warning(f"[img] NOT FOUND. IMAGE_FOLDER='{IMAGE_FOLDER}', samples={sample}")
         return jsonify({"error": "File not found"}), 404
 
     mime = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
-    resp = send_file(image_path, mimetype=mime)
-    resp.headers["Cache-Control"] = "public, max-age=86400, immutable"
-    return resp
+    stat = os.stat(image_path)
+
+    try:
+        resp = send_file(
+            image_path,
+            mimetype=mime,
+            conditional=False,      # ส่งเต็มไฟล์
+            etag=False,
+        )
+        resp.headers["Content-Length"] = str(stat.st_size)
+        resp.headers["Accept-Ranges"] = "none"
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+    except Exception as e:
+        app.logger.exception(f"[img] send_file error: {e}")  # 👉 จะเห็นสาเหตุ 500 ชัด
+        return jsonify({"error": "Internal error serving image"}), 500
 # Create Web server
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=6502)
