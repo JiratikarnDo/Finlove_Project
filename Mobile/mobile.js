@@ -738,7 +738,9 @@ app.get('/api_v2/profile/:id', async function (req, res) {
     SELECT 
         u.firstname, 
         u.lastname, 
-        u.nickname, 
+        u.nickname,
+        u.height     AS height,   -- ✅ เพิ่ม
+        u.weight     AS weight,    -- ✅ เพิ่ม 
         u.verify,
         g.Gender_Name AS gender, 
         COALESCE(GROUP_CONCAT(DISTINCT p.PreferenceNames), 'ไม่มีความชอบ') AS preferences,
