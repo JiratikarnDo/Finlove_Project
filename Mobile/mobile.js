@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import { fileURLToPath } from "url";
-import { sendMail } from "./sendMail.js";
+import { sendMail } from "./ีutils/sendMail.js";
 import crypto from "crypto";
 
 
@@ -32,7 +32,6 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
-const router = express.Router();
 
 const db = mysql.createConnection({
   host: process.env.DATABASE_HOST,
@@ -41,10 +40,7 @@ const db = mysql.createConnection({
   database: process.env.DATABASE_NAME,
 });
 
-
 import helmet from "helmet";
-
-
 
 //////////////////////////////// ลบส่วนนี้หาก manual ////////////////////////////
 //const cors = require('cors');
@@ -56,7 +52,6 @@ import helmet from "helmet";
     //credentials: true  // หากต้องการให้ส่ง cookies หรือ header การยืนยัน
 //}));
 ///////////////////////////////////////////////////////////////////////////////
-
 
 
 db.connect();
@@ -82,15 +77,6 @@ function haversine(lat1, lon1, lat2, lon2) {
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c; // กิโลเมตร
-}
-
-function generateOTP(length = 6) {
-  const digits = '0123456789';
-  let otp = '';
-  for (let i = 0; i < length; i++) {
-    otp += digits[Math.floor(Math.random() * 10)];
-  }
-  return otp;
 }
 
 const transporter = nodemailer.createTransport({
@@ -125,34 +111,6 @@ function requireAuth(req, res, next) {
   }
 }
 
-function sendOtp(email, cb) {
-  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 นาที
-  const hash = crypto.createHash("sha256").update(code).digest("hex");
-
-  // ลบ OTP เก่า
-  db.query("DELETE FROM user_otp WHERE email = ?", [email], (err) => {
-    if (err) return cb(err);
-
-    // แทรก OTP ใหม่
-    db.query(
-      "INSERT INTO user_otp (email, otp_hash, expires_at, used, created_at) VALUES (?,?,?,?,NOW())",
-      [email, hash, expiresAt, 0],
-      (err2) => {
-        if (err2) return cb(err2);
-
-        // ส่งเมล
-        sendMail(
-          email,
-          "รหัสยืนยัน Finlove",
-          `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
-        )
-          .then(() => cb(null))
-          .catch(cb);
-      }
-    );
-  });
-}
 app.post('/api_v2/login', (req, res) => {
   const { username, password } = req.body;
   const sql = "SELECT UserID, username, password, email, isActive, is_verified FROM user WHERE username = ?";
@@ -282,7 +240,7 @@ if (
 
 }
 
-
+  console.log("Received Data:", req.body);
 
   // ตรวจอีเมล/username ซ้ำ
   db.query(
@@ -442,7 +400,7 @@ app.post("/api_v2/request-otp", (req, res) => {
   }
 
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 นาที
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 นาที
   const hash = crypto.createHash("sha256").update(code).digest("hex");
 
   // ลบ OTP เก่าก่อน
@@ -467,7 +425,7 @@ app.post("/api_v2/request-otp", (req, res) => {
           await sendMail(
             email,
             "รหัสยืนยัน Finlove",
-            `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 5 นาที)`
+            `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 10 นาที)`
           );
           res.json({ message: "OTP sent successfully" });
         } catch (mailErr) {
@@ -568,7 +526,7 @@ app.post('/api_v2/request-pin', async (req, res) => {
             subject: 'รหัส PIN สำหรับรีเซ็ตรหัสผ่าน',
             text: `รหัส PIN ของคุณคือ: ${pinCode}. รหัสนี้จะหมดอายุใน 1 ชั่วโมง.`
         };
-_
+        
         await transporter.sendMail(mailOptions);
 
         res.send("PIN ถูกส่งไปยังอีเมลของคุณ");
