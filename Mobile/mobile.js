@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from "uuid";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import { fileURLToPath } from "url";
-import { sendMail } from "./ีutils/sendMail.js";
+import { sendMail } from "./utils/sendMail.js";
 import crypto from "crypto";
 
 
@@ -305,18 +305,23 @@ if (
                     done++;
                     if (done === preferenceIDs.length) {
                       // หลังจาก preferences เสร็จ → ส่ง OTP
-                      sendOtp(email, (err) => {
-                        if (err) {
+                      sendMail(
+                        email,
+                        "รหัสยืนยัน Finlove",
+                        "กรุณายืนยันอีเมลของคุณเพื่อใช้งาน Finlove"
+                      )
+                        .then(() => {
+                          console.log("OTP sent successfully");
+                          return res.send({
+                            message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
+                            status: true,
+                            next: "verify_otp_required"
+                          });
+                        })
+                        .catch((err) => {
                           console.error("OTP error:", err);
                           return res.status(500).send({ message: "ส่ง OTP ไม่สำเร็จ", status: false });
-                        }
-                          console.log("OTP sent successfully");
-                        return res.send({
-                          message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
-                          status: true,
-                          next: "verify_otp_required"
                         });
-                      });
                     }
                   }
                 );
@@ -1818,7 +1823,7 @@ app.post('/api_v2/block-chat', (req, res) => {
                         console.error('Database error:', err);
                         return res.status(500).json({ error: 'Database error' });
                     }
-                    console.log(`Updated block status successfully: user1ID: ${user1ID}, user2ID: ${user2ID}, isBlocked: ${isBlocked}`);
+                    console.log(`Updated block status successfully: user1ID: ${userID}, user2ID: ${user2ID}, isBlocked: ${isBlocked}`);
                     res.status(200).json({ success: isBlocked ? 'Chat blocked successfully' : 'Chat unblocked successfully' });
                 });
             } else {
@@ -1831,7 +1836,7 @@ app.post('/api_v2/block-chat', (req, res) => {
                         console.error('Database error:', err);
                         return res.status(500).json({ error: 'Database error' });
                     }
-                    console.log(`Inserted new block record successfully: user1ID: ${user1ID}, user2ID: ${user2ID}, matchID: ${matchID}, isBlocked: ${isBlocked}`);
+                    console.log(`Inserted new block record successfully: user1ID: ${userID}, user2ID: ${user2ID}, matchID: ${matchID}, isBlocked: ${isBlocked}`);
                     res.status(200).json({ success: 'Chat blocked successfully' });
                 });
             }
