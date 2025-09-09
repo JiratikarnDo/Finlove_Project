@@ -242,6 +242,10 @@ if (
 
   console.log("Received Data:", req.body);
 
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 นาที
+  const hash = crypto.createHash("sha256").update(code).digest("hex");
+
   // ตรวจอีเมล/username ซ้ำ
   db.query(
     "SELECT UserID FROM user WHERE email = ? OR username = ? LIMIT 1",
@@ -304,25 +308,41 @@ if (
                   () => {
                     done++;
                     if (done === preferenceIDs.length) {
-                      // หลังจาก preferences เสร็จ → ส่ง OTP
-                      sendMail(
-                        email,
-                        "รหัสยืนยัน Finlove",
-                        "กรุณายืนยันอีเมลของคุณเพื่อใช้งาน Finlove" 
-                      )
-                        .then(() => {
+                    db.query("DELETE FROM user_otp WHERE email = ?", [email], (err) => {
+                    if (err) {
+                      console.error("DB delete error:", err);
+                      return res.status(500).json({ message: "DB error" });
+                    }
+                      // แทรก OTP ใหม่
+                      db.query(
+                      "INSERT INTO user_otp (email, otp_hash, expires_at) VALUES (?,?,?)",
+                      [email, hash, expiresAt],
+                      async (err) => {
+                        if (err) {
+                          console.error("DB insert error:", err);
+                          return res.status(500).json({ message: "DB error" });
+                        }
+                        try {
+                          // ส่งอีเมลพร้อมเลข OTP
+                          await sendMail(
+                            email,
+                            "รหัสยืนยัน Finlove",
+                            `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 10 นาที)`
+                          );
                           console.log("OTP sent successfully");
                           return res.send({
                             message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
                             status: true,
                             next: "verify_otp_required"
                           });
-                        })
-                        .catch((err) => {
-                          console.error("OTP error:", err);
+                        } catch (mailErr) {
+                          console.error("Send mail error:", mailErr);
                           return res.status(500).send({ message: "ส่ง OTP ไม่สำเร็จ", status: false });
-                        });
-                    }
+                        }
+                      }
+                    );
+                  });
+                }
                   }
                 );
               });
@@ -433,9 +453,8 @@ app.post("/api_v2/request-otp", (req, res) => {
             `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 10 นาที)`
           );
           res.send({
-            message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
+            message: "ล่ง OTP ไปยังอีเมลที่ระบุ สำเร็จ",
             status: true,
-            next: "verify_otp_required"
           });
         } catch (mailErr) {
           console.error("Send mail error:", mailErr);
