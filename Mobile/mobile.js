@@ -323,7 +323,6 @@ if (
                           return res.status(500).json({ message: "DB error" });
                         }
                         try {
-                          // ส่งอีเมลพร้อมเลข OTP
                           await sendMail(
                             email,
                             "รหัสยืนยัน Finlove",
