@@ -308,7 +308,7 @@ if (
                       sendMail(
                         email,
                         "รหัสยืนยัน Finlove",
-                        "กรุณายืนยันอีเมลของคุณเพื่อใช้งาน Finlove"
+                        "กรุณายืนยันอีเมลของคุณเพื่อใช้งาน Finlove" 
                       )
                         .then(() => {
                           console.log("OTP sent successfully");
@@ -426,16 +426,20 @@ app.post("/api_v2/request-otp", (req, res) => {
         }
 
         try {
-          // ส่งอีเมล
+          // ส่งอีเมลพร้อมเลข OTP
           await sendMail(
             email,
             "รหัสยืนยัน Finlove",
             `รหัส OTP ของคุณคือ ${code} (หมดอายุใน 10 นาที)`
           );
-          res.json({ message: "OTP sent successfully" });
+          res.send({
+            message: "ลงทะเบียนสำเร็จ โปรดยืนยัน OTP ที่อีเมล",
+            status: true,
+            next: "verify_otp_required"
+          });
         } catch (mailErr) {
           console.error("Send mail error:", mailErr);
-          res.status(500).json({ message: "Failed to send OTP" });
+          res.status(500).send({ message: "ส่ง OTP ไม่สำเร็จ", status: false });
         }
       }
     );
