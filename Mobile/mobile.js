@@ -667,7 +667,13 @@ app.get('/api_v2/user', function(req, res) {
 app.get('/api_v2/user/image/:filename', function(req, res) {
     //ดึงรูปให้ตรง path
     const fp = path.join(USER_ASSETS_DIR, path.basename(req.params.filename));
-  res.sendFile(fp, err => err && res.status(404).json({ error: "Image not found" }));
+     res.sendFile(fp, function (err) {
+        if (err) {
+            if (!res.headersSent) {
+                res.status(404).json({ error: "Image not found" });
+            }
+        }
+    });
 });
 
 
