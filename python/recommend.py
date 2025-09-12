@@ -1,12 +1,14 @@
 from flask import Flask, send_file, request, jsonify
 import mysql.connector as sql
-from sklearn.metrics.pairwise import cosine_similarity
+from helpers.osm_images import best_photo_url_from_tags
+from helpers.osm_images import get_wikipedia_intro_from_wikidata
 import pandas as pd
 import os
 import warnings
-import numpy as np
 import math
 import os, mimetypes
+import requests
+
 
 IMAGE_FOLDER = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', 'assets', 'user')
@@ -25,19 +27,6 @@ def create_connection():
         user=os.getenv("DATABASE_USER"),
         password=os.getenv("DATABASE_PASSWORD")
     )
-
-# ฟังก์ชัน Haversine สำหรับคำนวณระยะห่างระหว่างพิกัด latitude และ longitude
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # รัศมีของโลก (กิโลเมตร)
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-
-    a = math.sin(delta_phi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    return R * c  # ระยะห่างในกิโลเมตร
 
 @app.route('/ai_v2/recommend/<int:id>', methods=['GET'])
 def recommend(id):
@@ -290,8 +279,144 @@ def get_user_image(filename):
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
     except Exception as e:
-        app.logger.exception(f"[img] send_file error: {e}")  # 👉 จะเห็นสาเหตุ 500 ชัด
+        app.logger.exception(f"[img] send_file error: {e}")
         return jsonify({"error": "Internal error serving image"}), 500
+    
+
+@app.route('/ai_v2/recommend_places/<int:match_id>', methods=['GET'])
+def recommend_places(match_id):
+    conn = create_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # 1) หาคู่จาก match_id
+    cursor.execute("SELECT user1ID, user2ID FROM matches WHERE matchID=%s AND isBlocked=0", (match_id,))
+    match = cursor.fetchone()
+    if not match:
+        return jsonify({"error": "Match not found"}), 404
+    u1, u2 = match['user1ID'], match['user2ID']
+
+    # 2) หาตำแหน่งล่าสุดของแต่ละ user
+    def get_latest_location(uid):
+        q = """SELECT latitude, longitude 
+               FROM location WHERE userID=%s
+               ORDER BY timestamp DESC LIMIT 1"""
+        cursor.execute(q, (uid,))
+        row = cursor.fetchone()
+        return (float(row['latitude']), float(row['longitude'])) if row else None
+
+    loc1 = get_latest_location(u1)
+    loc2 = get_latest_location(u2)
+    if not loc1 or not loc2:
+        return jsonify({"error": "Missing location for one or both users"}), 404
+
+    # 3) คำนวณ midpoint
+    def midpoint(lat1, lon1, lat2, lon2):
+        import math
+        phi1, lam1 = math.radians(lat1), math.radians(lon1)
+        phi2, lam2 = math.radians(lat2), math.radians(lon2)
+        bx = math.cos(phi2) * math.cos(lam2 - lam1)
+        by = math.cos(phi2) * math.sin(lam2 - lam1)
+        phi3 = math.atan2(math.sin(phi1) + math.sin(phi2),
+                          math.sqrt((math.cos(phi1) + bx)**2 + by**2))
+        lam3 = lam1 + math.atan2(by, math.cos(phi1) + bx)
+        return math.degrees(phi3), math.degrees(lam3)
+
+    mid_lat, mid_lon = midpoint(loc1[0], loc1[1], loc2[0], loc2[1])
+
+    # 4) shared preferences
+    prefs = pd.read_sql("SELECT * FROM userpreferences", conn)
+    pivot = prefs.pivot_table(index='UserID', columns='PreferenceID', aggfunc='size', fill_value=0)
+    shared = []
+    if u1 in pivot.index and u2 in pivot.index:
+        p1 = set(pivot.columns[pivot.loc[u1] > 0])
+        p2 = set(pivot.columns[pivot.loc[u2] > 0])
+        shared = list(p1 & p2)
+
+    pref_map = dict(pd.read_sql("SELECT PreferenceID, PreferenceNames FROM preferences", conn).values)
+    shared_names = [pref_map.get(p, f"Pref {p}") for p in shared]
+
+    # 5) ดึงสถานที่จาก OSM
+    query = f"""
+    [out:json][timeout:25];
+    (
+      node["amenity"~"cafe|restaurant|bar|pub|cinema|karaoke"](around:5000,{mid_lat},{mid_lon});
+      node["leisure"~"park|bowling_alley"](around:5000,{mid_lat},{mid_lon});
+      node["tourism"~"attraction|museum|gallery"](around:5000,{mid_lat},{mid_lon});
+    );
+    out center 40;
+    """
+    r = requests.post("https://overpass-api.de/api/interpreter", data={"data": query})
+    data = r.json()
+
+    spots = []
+    for e in data.get("elements", []):
+        tags = e.get("tags", {} or {})
+        name = tags.get("name", "Unnamed")
+        category = tags.get("amenity") or tags.get("leisure") or tags.get("tourism")
+        lat = e.get("lat") or (e.get("center") or {}).get("lat")
+        lon = e.get("lon") or (e.get("center") or {}).get("lon")
+
+        photo_url, photo_meta = best_photo_url_from_tags(tags)
+
+        # 1) ถ้ามี wikidata → ดึงจาก Wikipedia (ภาษาไทย)
+        qid = tags.get("wikidata")
+        if qid and qid.startswith("Q"):
+            try:
+                description = get_wikipedia_intro_from_wikidata(qid, lang="th")
+            except Exception as e:
+                print("Wiki fetch failed:", e)
+                description = None
+
+        # 2) ถ้าไม่มี → ใช้ description จาก OSM
+        description = None
+        if "description:th" in tags:
+            description = tags["description:th"]
+        elif "cuisine" in tags:
+            description = f"ร้านอาหารประเภท {tags['cuisine']}"
+        elif category == "cafe":
+            description = "คาเฟ่สำหรับนั่งพักผ่อนและดื่มกาแฟ"
+        elif category == "restaurant":
+            description = "ร้านอาหารสำหรับรับประทานมื้ออร่อยกับเพื่อนหรือครอบครัว"
+        elif category == "bar":
+            description = "บาร์สำหรับสังสรรค์และดื่มเครื่องดื่ม"
+        elif category == "pub":
+            description = "ผับสำหรับนั่งชิลหรือสังสรรค์ยามค่ำคืน"
+        elif category == "park":
+            description = "สวนสาธารณะสำหรับพักผ่อนและทำกิจกรรมกลางแจ้ง"
+        elif category == "museum":
+            description = "พิพิธภัณฑ์สำหรับเรียนรู้และชมงานจัดแสดง"
+        else:
+            description = f"สถานที่ประเภท {category or 'ทั่วไป'}"
+
+        spots.append({
+            "id": f"osm:{e['type']}/{e['id']}",
+            "name": name,
+            "lat": lat,
+            "lng": lon,
+            "category": category,
+            "photo_url": photo_url,
+            "description": description,
+            "photo_meta": photo_meta,
+            "gmaps_url": f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        })
+
+    # 6) เลือก Top 10 ใกล้ midpoint ที่สุด
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+    spots = sorted(spots, key=lambda s: haversine(mid_lat, mid_lon, s["lat"], s["lng"]))[:10]
+
+    return jsonify({
+        "users": [u1, u2],
+        "midpoint": {"lat": mid_lat, "lng": mid_lon},
+        "shared_preferences": shared_names,
+        "spots": spots
+    })
+
 # Create Web server
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=6502)
