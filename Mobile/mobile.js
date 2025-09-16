@@ -685,9 +685,11 @@ app.get('/api_v2/user/:id', async function (req, res) {
         u.username, u.email, u.firstname, u.lastname, u.nickname, 
         u.verify,
         g.Gender_Name AS gender, ig.interestGenderName AS interestGender, 
-        u.height, u.weight, u.home, u.DateBirth, u.imageFile,
+        u.height, u.weight, u.home, u.DateBirth, u.imageFile, u.province, 
         e.EducationName AS education,
-        go.goalName AS goal,
+        go.goalName AS goal, u.career_id AS careerId,
+        COALESCE(u.province, 'ไม่ระบุ') AS province,
+        COALESCE(c.career_name, 'ไม่ระบุ') AS careerName,
         COALESCE(GROUP_CONCAT(DISTINCT p.PreferenceNames), 'ไม่มีความชอบ') AS preferences
     FROM user u
     LEFT JOIN gender g ON u.GenderID = g.GenderID
@@ -696,6 +698,7 @@ app.get('/api_v2/user/:id', async function (req, res) {
     LEFT JOIN goal go ON u.goalID = go.goalID
     LEFT JOIN userpreferences up ON u.userID = up.userID
     LEFT JOIN preferences p ON up.PreferenceID = p.PreferenceID
+    LEFT JOIN careerdetail c     ON c.career_id = u.career_id
     WHERE u.userID = ?
     GROUP BY u.userID
     `;
@@ -735,11 +738,16 @@ app.get('/api_v2/profile/:id', async function (req, res) {
         u.verify,
         g.Gender_Name AS gender, 
         COALESCE(GROUP_CONCAT(DISTINCT p.PreferenceNames), 'ไม่มีความชอบ') AS preferences,
-        u.imageFile
+        u.imageFile,
+        u.province,
+        u.career_id AS careerId,
+        COALESCE(u.province, 'ไม่ระบุ') AS province,
+        COALESCE(c.career_name, 'ไม่ระบุ') AS careerName
     FROM user u
     LEFT JOIN gender g ON u.GenderID = g.GenderID
     LEFT JOIN userpreferences up ON u.userID = up.userID
     LEFT JOIN preferences p ON up.PreferenceID = p.PreferenceID
+    LEFT JOIN careerdetail c     ON c.career_id = u.career_id
     WHERE u.userID = ?
     GROUP BY u.userID
     `;
