@@ -2,6 +2,8 @@ from flask import Flask, send_file, request, jsonify
 import mysql.connector as sql
 from helpers.osm_images import best_photo_url_from_tags
 from helpers.osm_images import get_wikipedia_intro_from_wikidata
+from helpers.osm_images import get_fallback_image
+from helpers.osm_images import get_osm_image_tag
 import pandas as pd
 import os
 import warnings
@@ -247,16 +249,14 @@ def recommend(id):
 
 
 
-@app.route('/ai_v2/user/<path:filename>', methods=['GET'])  # << เปลี่ยนเป็น <path:filename>
+@app.route('/ai_v2/user/<path:filename>', methods=['GET'])
 def get_user_image(filename):
-    safe = os.path.basename(filename)                 # กัน traversal
+    safe = os.path.basename(filename)
     image_path = os.path.join(IMAGE_FOLDER, safe)
 
-    # 👉 DEBUG: พิมพ์ path ที่จะเปิด (แค่ช่วง dev)
     app.logger.info(f"[img] request='{filename}' safe='{safe}' path='{image_path}' exists={os.path.isfile(image_path)}")
 
     if not os.path.isfile(image_path):
-        # 👉 DEBUG: แสดงรายการไฟล์ในโฟลเดอร์สั้น ๆ
         try:
             sample = sorted(os.listdir(IMAGE_FOLDER))[:5]
         except Exception as e:
@@ -271,7 +271,7 @@ def get_user_image(filename):
         resp = send_file(
             image_path,
             mimetype=mime,
-            conditional=False,      # ส่งเต็มไฟล์
+            conditional=False,
             etag=False,
         )
         resp.headers["Content-Length"] = str(stat.st_size)
@@ -358,6 +358,10 @@ def recommend_places(match_id):
 
         photo_url, photo_meta = best_photo_url_from_tags(tags)
 
+        if not photo_url:
+            photo_url = get_fallback_image(category)
+            photo_meta = {"source": "fallback"}
+
         # 1) ถ้ามี wikidata → ดึงจาก Wikipedia (ภาษาไทย)
         qid = tags.get("wikidata")
         if qid and qid.startswith("Q"):
@@ -407,6 +411,10 @@ def recommend_places(match_id):
         dlon = math.radians(lon2 - lon1)
         a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    
+    for s in spots:
+        s["distance_from_user1_km"] = round(haversine(loc1[0], loc1[1], s["lat"], s["lng"]), 2)
+        s["distance_from_user2_km"] = round(haversine(loc2[0], loc2[1], s["lat"], s["lng"]), 2)
 
     spots = sorted(spots, key=lambda s: haversine(mid_lat, mid_lon, s["lat"], s["lng"]))[:10]
 
