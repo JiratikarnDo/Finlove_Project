@@ -804,6 +804,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         nickname = nickname || currentuser.nickname;
         height = height || currentuser.height;
         home = home || currentuser.home;
+        province = province || currentuser.province;
 
         // Handle DateBirth: ถ้าไม่มีการส่งมา ใช้ค่าปัจจุบันในฐานข้อมูล
         if (DateBirth && DateBirth !== '') {
@@ -926,7 +927,7 @@ app.post('/api_v2/user/update_preferences/:id', async function (req, res) {
 
 app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, res) {
     const { id } = req.params;
-    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences } = req.body;
+    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province } = req.body;
     const image = req.file ? req.file.filename : null;
 
     try {
@@ -1004,9 +1005,9 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         const sqlUpdate = `
             UPDATE user 
-            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?
+            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, province = ?
             WHERE userID = ?`;
-        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, id]);
+        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, province, id]);
 
         const imageUrl = currentImageFile ? `${req.protocol}://${req.get('host')}/assets/user/${currentImageFile}` : null;
 
