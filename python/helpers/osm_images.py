@@ -130,3 +130,15 @@ def best_photo_url_from_tags(tags: dict, width: int = 640) -> Tuple[Optional[str
             return url, meta
 
     return None, meta
+
+def get_fallback_image(category):
+    fallback_map = {
+        "cafe": "https://images.pexels.com/photos/6205767/pexels-photo-6205767.jpeg?_gl=1*1uub0q*_ga*MTIxODU0NzU3NS4xNzU4MDkzMTQ4*_ga_8JE65Q40S6*czE3NTgwOTMxNDgkbzEkZzEkdDE3NTgwOTMxNzEkajM3JGwwJGgw",
+        "restaurant": "https://image-tc.galaxy.tf/wijpeg-cbonbtu9py0asfg4dqb50opnz/20240114-185024.jpg?width=1920",
+        "bar": "https://media.timeout.com/images/105930418/1920/1440/image.webp",
+        "pub": "https://siam2nite.media/0FHBiHwe8dJFfI4Ukrb-YtimHCQ=/1280x720/smart/locations/3275/cover_large_p1gn20k8no9a01i2e198lt14tf25.jpg",
+        "park": "https://static.thairath.co.th/media/dFQROr7oWzulq5Fa4MRjyC9qu6WMdqDgK1Eq4174jx6YkV7oxN9kKXdxKAy4N11is5c.webp",
+        "museum": "https://www.sarakadeelite.com/wp-content/uploads/2023/11/open-1.jpg",
+        "cinema": "https://open-stand.org/wp-content/uploads/2016/04/International-Union-of-Cinemas-Calls-for-Open-Standards-in-the-Cinema-Industry.jpg",
+    }
+    return fallback_map.get(category, None)
