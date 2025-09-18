@@ -346,7 +346,21 @@ def recommend_places(match_id):
     out center 40;
     """
     r = requests.post("https://overpass-api.de/api/interpreter", data={"data": query})
-    data = r.json()
+    if r.status_code != 200:
+        return jsonify({
+            "error": "Overpass error",
+            "status": r.status_code,
+            "body": r.text[:300]  # ส่ง preview ให้ client ดู
+    }), 502
+
+    try:
+        data = r.json()
+    except Exception:
+        return jsonify({
+        "error": "Overpass response not JSON",
+        "status": r.status_code,
+        "body": r.text[:300]  # client จะเห็นว่าได้ HTML / ว่าง / อะไรมา
+    }), 502
 
     spots = []
     for e in data.get("elements", []):
