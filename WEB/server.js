@@ -24,7 +24,7 @@ require('dotenv').config();  // ต้องแน่ใจว่าได้โ
 const db = mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "pou59874145",
+    password: "1234",
     database: "finlove"
 });
 
