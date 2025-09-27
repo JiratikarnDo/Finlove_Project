@@ -9,7 +9,7 @@ import { createTheme, ThemeProvider } from '@mui/material/styles';
 import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from 'react-router-dom'; 
-import LogoImage from './assets/logofinlove.png'; // ใช้โลโก้ที่คุณให้มา
+import LogoImage from './assets/logofinlove.png';
 
 const defaultTheme = createTheme();
 
@@ -23,6 +23,7 @@ export default function SignInUser() {
 
     try {
       const response = await axios.post(process.env.REACT_APP_BASE_URL + '/login',
+        console.log(process.env.REACT_APP_BASE_URL),
         {
           username,
           password

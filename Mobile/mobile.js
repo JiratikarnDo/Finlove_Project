@@ -685,10 +685,13 @@ app.get('/api_v2/user/:id', async function (req, res) {
         u.username, u.email, u.firstname, u.lastname, u.nickname, 
         u.verify,
         g.Gender_Name AS gender, ig.interestGenderName AS interestGender, 
-        u.height, u.weight, u.home, u.DateBirth, u.imageFile, u.province, 
+        u.height, u.weight, u.home, u.DateBirth, u.imageFile,
         e.EducationName AS education,
-        go.goalName AS goal, u.career_id AS careerId,
+        go.goalName AS goal,
         COALESCE(u.province, 'ไม่ระบุ') AS province,
+        u.career_id AS career_id, 
+        u.career_id AS careerId,
+        COALESCE(c.career_name, 'ไม่ระบุ') AS career_name,
         COALESCE(c.career_name, 'ไม่ระบุ') AS careerName,
         COALESCE(GROUP_CONCAT(DISTINCT p.PreferenceNames), 'ไม่มีความชอบ') AS preferences
     FROM user u
@@ -781,7 +784,7 @@ app.get('/api_v2/profile/:id', async function (req, res) {
 // API Update user
 app.post('/api_v2/user/update/:id', async function(req, res) {
     const { id } = req.params;
-    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences } = req.body;
+    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province } = req.body;
 
     try {
         // Fetch current user data
@@ -853,13 +856,26 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
             goalID = goalResult[0].goalID;
         }
 
+        // ✅ NEW: อ่าน career_id (รองรับ careerId ด้วย)
+        const rawCareer = (req.body.career_id ?? req.body.careerId);
+        let careerId = currentuser.career_id;
+        if (rawCareer !== undefined && rawCareer !== '') {
+            const v = parseInt(rawCareer, 10);
+            if (!Number.isNaN(v)) {
+          // (แนะนำ) ตรวจสอบว่ามีใน careerdetail เพื่อเลี่ยง FK error
+                const [ok] = await db.promise().query("SELECT 1 FROM careerdetail WHERE career_id = ? LIMIT 1", [v]);
+                if (ok.length === 0) return res.status(400).send({ message: "career_id ไม่ถูกต้อง", status: false });
+                careerId = v;
+            }
+        }   
+
         // Update the user table with all the fields
         const updateuserSql = `
             UPDATE user 
-            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight =?, home = ?, DateBirth = ?, educationID = ?, goalID = ?
+            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight =?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, province=?, career_id=?
             WHERE userID = ?
         `;
-        await db.promise().query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, weight, home, DateBirth, educationID, goalID, id]);
+        await db.promise().query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, weight, home, DateBirth, educationID, goalID, province, careerId, id]);
 
         // Update preferences in userpreferences table
         if (preferences && Array.isArray(preferences)) {
@@ -927,7 +943,7 @@ app.post('/api_v2/user/update_preferences/:id', async function (req, res) {
 
 app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, res) {
     const { id } = req.params;
-    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province } = req.body;
+    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province, career_id } = req.body;
     const image = req.file ? req.file.filename : null;
 
     try {
@@ -973,6 +989,17 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             }
         }
 
+        // ✅ NEW: คำนวณ careerId ใช้ค่าปัจจุบันถ้าไม่ได้ส่งมา หรือ validate ถ้าส่งมา
+        let careerId = currentuser.career_id;
+        if (career_id !== undefined && career_id !== '') {
+            const v = parseInt(career_id, 10);
+            if (!Number.isNaN(v)) {
+                const [ok] = await db.promise().query("SELECT 1 FROM careerdetail WHERE career_id=? LIMIT 1", [v]);
+                if (ok.length === 0) return res.status(400).send({ message: "career_id ไม่ถูกต้อง", status: false });
+                careerId = v;
+              }
+          }
+
         if (preferences && Array.isArray(preferences)) {
             await db.promise().query("DELETE FROM userpreferences WHERE userID = ?", [id]);
 
@@ -1005,9 +1032,9 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         const sqlUpdate = `
             UPDATE user 
-            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, province = ?
+            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, career_id=?, province = ?
             WHERE userID = ?`;
-        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, province, id]);
+        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, careerId, province, id]);
 
         const imageUrl = currentImageFile ? `${req.protocol}://${req.get('host')}/assets/user/${currentImageFile}` : null;
 
