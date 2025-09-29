@@ -18,14 +18,14 @@ const credentials = { key: privateKey, cert: certificate };
 
 // Import CORS library
 const cors = require('cors');
-require('dotenv').config();  // ต้องแน่ใจว่าได้โหลดไฟล์ .env แล้ว
 
-// Database(MySql) configuration
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+
 const db = mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    password: "1234",
-    database: "finlove"
+    host: process.env.DATABASE_HOST,
+    user: process.env.DATABASE_USER,
+    password: process.env.DATABASE_PASSWORD,
+    database: process.env.DATABASE_NAME
 });
 
 db.connect((err) => {
@@ -45,12 +45,12 @@ app.use(fileupload());
 const rateLimit = require('express-rate-limit');
 
 const limiter = rateLimit({
-    windowMs: 60 * 1000, // 1 นาที
-    max: 300, // จำกัดคำขอ 100 ครั้งต่อนาที
+    windowMs: 60 * 1000,
+    max: 300,
     message: { message: "Too many requests, please try again later.", status: false }
 });
 
-app.use(limiter); // นำไปใช้กับทุกเส้นทาง
+app.use(limiter);
 
 // ====== เพิ่มตัวแปรกลางสำหรับ assets ======
 const ASSETS_USER_PATH = path.join(__dirname, '..', 'assets', 'user');
