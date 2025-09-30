@@ -353,69 +353,6 @@ if (
   );
 });
 
-
-// API Register
-// app.post('/api_v2/register8', upload.single('imageFile'), async function(req, res) {
-//     const { email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID } = req.body;
-//     const fileName = req.file ? req.file.filename : null;
-
-//     // ตรวจสอบข้อมูลว่าครบถ้วนหรือไม่
-//     if (!email || !username || !password || !firstname || !lastname || !nickname || !gender || !height || !phonenumber || !home || !dateOfBirth || !educationID || !preferences || !goalID || !interestGenderID || !fileName) {
-//         console.log("ข้อมูลไม่ครบถ้วน", {
-//             email, username, password, firstname, lastname, nickname, gender, height, phonenumber, home, dateOfBirth, educationID, preferences, goalID, interestGenderID, fileName
-//         });
-//         return res.status(400).send({ "message": "ข้อมูลไม่ครบถ้วน", "status": false });
-//     }
-
-//     try {
-//         // ตรวจสอบว่าอีเมลหรือชื่อผู้ใช้ซ้ำหรือไม่
-//         const [existingUser] = await db.promise().query("SELECT * FROM user WHERE email = ? OR username = ?", [email, username]);
-//         if (existingUser.length > 0) {
-//             return res.status(409).send({ "message": "อีเมลหรือชื่อผู้ใช้ซ้ำ กรุณาใช้ข้อมูลใหม่", "status": false });
-//         }
-
-//         // ทำการ hash รหัสผ่าน
-//         const hashedPassword = await bcrypt.hash(password, saltRounds);
-
-//         // ค้นหา GenderID
-//         const [genderResult] = await db.promise().query("SELECT GenderID FROM gender WHERE Gender_Name = ?", [gender]);
-
-//         if (genderResult.length === 0) {
-//             console.log("ไม่พบข้อมูลเพศที่ระบุ");
-//             return res.status(404).send({ "message": "ไม่พบข้อมูลเพศที่ระบุ", "status": false });
-//         }
-
-//         const genderID = genderResult[0].GenderID;
-
-//         // Log ข้อมูลก่อนการบันทึกลง database
-//         console.log("Inserting data into user: ", {
-//             username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID
-//         });
-
-//         // บันทึกข้อมูลผู้ใช้
-//         const sqlInsert = `
-//             INSERT INTO user (username, password, email, firstname, lastname, nickname, GenderID, height, phonenumber, home, DateBirth, EducationID, goalID, imageFile, interestGenderID )
-//             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-//         `;
-//         const [insertResult] = await db.promise().query(sqlInsert, [username, hashedPassword, email, firstname, lastname, nickname, genderID, height, phonenumber, home, dateOfBirth, educationID, goalID, fileName, interestGenderID]);
-
-//         const userID = insertResult.insertId;
-
-//         // บันทึก preferences
-//         const preferenceIDs = preferences.split(',').map(id => parseInt(id));
-//         for (const preferenceID of preferenceIDs) {
-//             await db.promise().query("INSERT INTO userpreferences (userID, PreferenceID) VALUES (?, ?)", [userID, preferenceID]);
-//         }
-
-//         console.log(`Preferences saved for user ${userID}: `, preferenceIDs);
-
-//         res.send({ "message": "ลงทะเบียนสำเร็จ", "status": true });
-//     } catch (err) {
-//         console.error('Database error:', err);
-//         res.status(500).send({ "message": "บันทึกลง FinLove ล้มเหลว", "status": false });
-//     }
-// });
-
 // สร้าง OTP + ส่งเมล 
 app.post("/api_v2/request-otp", (req, res) => {
   const { email } = req.body;
@@ -856,7 +793,6 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
             goalID = goalResult[0].goalID;
         }
 
-        // ✅ NEW: อ่าน career_id (รองรับ careerId ด้วย)
         const rawCareer = (req.body.career_id ?? req.body.careerId);
         let careerId = currentuser.career_id;
         if (rawCareer !== undefined && rawCareer !== '') {
@@ -989,7 +925,6 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
             }
         }
 
-        // ✅ NEW: คำนวณ careerId ใช้ค่าปัจจุบันถ้าไม่ได้ส่งมา หรือ validate ถ้าส่งมา
         let careerId = currentuser.career_id;
         if (career_id !== undefined && career_id !== '') {
             const v = parseInt(career_id, 10);
