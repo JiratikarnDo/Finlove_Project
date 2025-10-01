@@ -17,8 +17,6 @@ if not os.path.exists(TEST_DATA_PATH) or not os.path.exists(MODEL_PATH):
     print(f"Test Path: {TEST_DATA_PATH} | Model File: {MODEL_PATH}")
     sys.exit(1)
 
-# --- 2. โหลดโมเดลและข้อมูล ---
-
 # โหลดโมเดลที่ดีที่สุด
 print(f"--- โหลดโมเดล: {MODEL_PATH} ---")
 model = tf.keras.models.load_model(MODEL_PATH)
