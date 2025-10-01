@@ -3,13 +3,9 @@ import tensorflow as tf
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
 import numpy as np
 
-# --- กำหนดค่าและ Path ---
-# เปลี่ยน Path นี้ให้เป็นตำแหน่งโฟลเดอร์ live ของภาพ Depth ของคุณ
-# Path น่าจะเป็น: .../archive/train_img/train_img/depth/live/
 DEPTH_LIVE_DIR = 'C:/Users/wmmyo/Downloads/archive/train_img/train_img/depth/live/' 
 TARGET_ADD_COUNT = 850  # เป้าหมาย: 1252 - 405 = 847 ภาพใหม่
 
-# Data Augmentation Generator สำหรับภาพขาวดำ/Depth
 datagen = ImageDataGenerator(
     rotation_range=20,          # หมุนภาพ
     width_shift_range=0.1,      # เลื่อนแนวนอน
@@ -19,7 +15,6 @@ datagen = ImageDataGenerator(
     fill_mode='nearest'
 )
 
-# --- เริ่มกระบวนการสร้างภาพ ---
 print(f"กำลังเพิ่มภาพ Live (Depth): {TARGET_ADD_COUNT} ภาพ")
 
 count = 0
