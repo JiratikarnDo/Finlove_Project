@@ -623,6 +623,7 @@ app.get('/api_v2/user/:id', async function (req, res) {
         u.verify,
         g.Gender_Name AS gender, ig.interestGenderName AS interestGender, 
         u.height, u.weight, u.home, u.DateBirth, u.imageFile,
+        u.bio,   
         e.EducationName AS education,
         go.goalName AS goal,
         COALESCE(u.province, 'ไม่ระบุ') AS province,
@@ -673,6 +674,7 @@ app.get('/api_v2/profile/:id', async function (req, res) {
         u.firstname, 
         u.lastname, 
         u.nickname,
+        u.bio,                       -- ✅ เพิ่ม
         u.height     AS height,   -- ✅ เพิ่ม
         u.weight     AS weight,    -- ✅ เพิ่ม 
         u.verify,
@@ -721,7 +723,7 @@ app.get('/api_v2/profile/:id', async function (req, res) {
 // API Update user
 app.post('/api_v2/user/update/:id', async function(req, res) {
     const { id } = req.params;
-    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province } = req.body;
+    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province, bio } = req.body;
 
     try {
         // Fetch current user data
@@ -745,6 +747,7 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         height = height || currentuser.height;
         home = home || currentuser.home;
         province = province || currentuser.province;
+        bio = bio !== undefined ? bio : currentuser.bio;
 
         // Handle DateBirth: ถ้าไม่มีการส่งมา ใช้ค่าปัจจุบันในฐานข้อมูล
         if (DateBirth && DateBirth !== '') {
@@ -808,10 +811,10 @@ app.post('/api_v2/user/update/:id', async function(req, res) {
         // Update the user table with all the fields
         const updateuserSql = `
             UPDATE user 
-            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight =?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, province=?, career_id=?
+            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight =?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, province=?, bio=?, career_id=?
             WHERE userID = ?
         `;
-        await db.promise().query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, weight, home, DateBirth, educationID, goalID, province, careerId, id]);
+        await db.promise().query(updateuserSql, [username, email, firstname, lastname, nickname, genderID, interestGenderID, height, weight, home, DateBirth, educationID, goalID, province, bio, careerId, id]);
 
         // Update preferences in userpreferences table
         if (preferences && Array.isArray(preferences)) {
@@ -879,7 +882,7 @@ app.post('/api_v2/user/update_preferences/:id', async function (req, res) {
 
 app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, res) {
     const { id } = req.params;
-    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province, career_id } = req.body;
+    let { username, email, firstname, lastname, nickname, gender, interestGender, height, weight, home, DateBirth, education, goal, preferences, province, bio, career_id } = req.body;
     const image = req.file ? req.file.filename : null;
 
     try {
@@ -967,9 +970,9 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
 
         const sqlUpdate = `
             UPDATE user 
-            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, career_id=?, province = ?
+            SET username = ?, email = ?, firstname = ?, lastname = ?, nickname = ?, imageFile = ?, GenderID = ?, InterestGenderID = ?, height = ?, weight = ?, home = ?, DateBirth = ?, educationID = ?, goalID = ?, career_id=?, province = ?, bio=?
             WHERE userID = ?`;
-        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, careerId, province, id]);
+        await db.promise().query(sqlUpdate, [username, email, firstname, lastname, nickname, currentImageFile, genderID, interestGenderID, height, weight, home, dateBirth, educationID, goalID, careerId, province, bio, id]);
 
         const imageUrl = currentImageFile ? `${req.protocol}://${req.get('host')}/assets/user/${currentImageFile}` : null;
 
