@@ -90,50 +90,47 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// ฟังก์ชันคำนวณคะแนน
+// ฟังก์ชันคำนวณคะแนน (แยกทุกส่วน + รวมสูงสุด 100)
 function calculateProfileScore(user, prefCount, locCount) {
   let score = 0;
   const rec = [];
+  const addRec = (m) => { if (!rec.includes(m)) rec.push(m); }; // กันข้อความซ้ำ
 
-  // รูป / ชื่อเล่น / verify
-  if (user.imageFile) score += 15;
-  else rec.push("เพิ่มรูปโปรไฟล์");
-  if (user.nickname) score += 5;
-  else rec.push("เพิ่มชื่อเล่น");
-  if (user.is_verified) score += 5;
-  else rec.push("ยืนยันตัวตน");
+  // รูป / ชื่อเล่น / ยืนยันตัวตน  = 15 + 5 + 5 = 25
+  if (user.imageFile) score += 15; else addRec("เพิ่มรูปโปรไฟล์");
+  if (user.nickname)  score += 5;  else addRec("เพิ่มชื่อเล่น");
+  if (user.is_verified) score += 5; else addRec("ยืนยันตัวตน");
 
-  // ข้อมูลพื้นฐาน
-  if (user.firstname && user.lastname && user.GenderID && user.DateBirth) {
-    score += 15;
-  } else {
-    rec.push("กรอกข้อมูลพื้นฐานให้ครบ (ชื่อ, เพศ, วันเกิด)");
-  }
+  // ข้อมูลพื้นฐาน (ชื่อ-นามสกุล / เพศ / วันเกิด) = 7 + 4 + 4 = 15
+  const hasFirst = !!user.firstname;
+  const hasLast  = !!user.lastname;
+  if (hasFirst && hasLast) score += 7; else addRec("กรอกชื่อ-นามสกุล");
+  if (user.GenderID)  score += 4; else addRec("ระบุเพศ");
+  if (user.DateBirth) score += 4; else addRec("ระบุวันเกิด");
 
-  // ตำแหน่งที่ตั้ง
-  if (user.home || user.province) score += 5;
-  if (locCount > 0) score += 5;
-  else rec.push("เปิดแชร์ตำแหน่งหรือระบุจังหวัด");
+  // ตำแหน่งที่ตั้ง (บ้าน / จังหวัด / มีประวัติแชร์ตำแหน่ง) = 5 + 5 + 5 = 15
+  if (user.home)     score += 5; else addRec("กรุณาระบุที่อยู่เบื้องต้น");
+  if (user.province) score += 5; else addRec("กรุณาระบุจังหวัด");
+  if (locCount > 0)  score += 5; else addRec("เปิดแชร์ตำแหน่ง (Location)");
 
-  // การศึกษา / อาชีพ
-  if (user.educationID || user.career_id) score += 10;
-  else rec.push("เพิ่มข้อมูลอาชีพหรือระดับการศึกษา");
+  // การศึกษา / อาชีพ = 5 + 5 = 10
+  if (user.educationID) score += 5; else addRec("ระบุระดับการศึกษา");
+  if (user.career_id)   score += 5; else addRec("ระบุอาชีพ");
 
-  // เป้าหมาย / ความชอบ
-  if (user.goalID && user.interestGenderID) score += 10;
-  else rec.push("เลือกเป้าหมายความสัมพันธ์");
+  // เป้าหมาย / เพศที่สนใจ = 5 + 5 = 10
+  if (user.goalID)           score += 5; else addRec("ตั้งค่าเป้าหมายความสัมพันธ์");
+  if (user.interestGenderID) score += 5; else addRec("ตั้งค่าเพศที่สนใจ");
 
-  if (prefCount >= 3) score += 5;
-  else rec.push("เลือกความชอบอย่างน้อย 3 ข้อ");
+  // ความชอบ (>= 3 ข้อ) = 10
+  if (prefCount >= 3) score += 10; else addRec("เลือกความชอบอย่างน้อย 3 ข้อ");
 
-  // Bio
+  // Bio (>= 20 ตัวอักษร) = 15
   if (user.bio && user.bio.length >= 20) score += 15;
-  else rec.push("เขียนคำแนะนำตัว (Bio) ให้ยาวขึ้น");
+  else addRec("เขียนคำแนะนำตัว (Bio) ให้ยาวขึ้น");
 
-  // ความสนใจ
-  if (prefCount >= 3) score += 10;
-  else rec.push("เลือกความสนใจอย่างน้อย 3 ข้อ");
-  
+  // รวมสูงสุด 100
+  if (score > 100) score = 100;
+  if (score < 0)   score = 0;
 
   return { score, rec };
 }
