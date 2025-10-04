@@ -11,7 +11,8 @@ Finlove Backend คือระบบ **API + Machine Learning Recommendation** 
 - Hybrid Recommendation System (Machine Learning + User Preferences)
 - จัดการฐานข้อมูลผู้ใช้ด้วย MySQL
 - รองรับการอัปโหลดรูปภาพผู้ใช้
-
+- รองรับระบบสแกนใบหน้า
+- รองรับระบบ Location GPS
 ---
 
 ## 🛠️ Tech Stack
@@ -28,3 +29,4 @@ Finlove Backend คือระบบ **API + Machine Learning Recommendation** 
 ```bash
 git clone https://github.com/JirattikarnDo/Finlove_Project.git
 cd Finlove_Project
+
