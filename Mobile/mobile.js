@@ -11,6 +11,7 @@ import jwt from "jsonwebtoken";
 import { fileURLToPath } from "url";
 import { sendMail } from "./utils/sendMail.js";
 import crypto from "crypto";
+import helmet from "helmet";
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -40,7 +41,6 @@ const db = mysql.createConnection({
   database: process.env.DATABASE_NAME,
 });
 
-import helmet from "helmet";
 
 //////////////////////////////// ลบส่วนนี้หาก manual ////////////////////////////
 //const cors = require('cors');
@@ -89,6 +89,54 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS,
     },
 });
+
+// ฟังก์ชันคำนวณคะแนน
+function calculateProfileScore(user, prefCount, locCount) {
+  let score = 0;
+  const rec = [];
+
+  // รูป / ชื่อเล่น / verify
+  if (user.imageFile) score += 15;
+  else rec.push("เพิ่มรูปโปรไฟล์");
+  if (user.nickname) score += 5;
+  else rec.push("เพิ่มชื่อเล่น");
+  if (user.is_verified) score += 5;
+  else rec.push("ยืนยันตัวตน");
+
+  // ข้อมูลพื้นฐาน
+  if (user.firstname && user.lastname && user.GenderID && user.DateBirth) {
+    score += 15;
+  } else {
+    rec.push("กรอกข้อมูลพื้นฐานให้ครบ (ชื่อ, เพศ, วันเกิด)");
+  }
+
+  // ตำแหน่งที่ตั้ง
+  if (user.home || user.province) score += 5;
+  if (locCount > 0) score += 5;
+  else rec.push("เปิดแชร์ตำแหน่งหรือระบุจังหวัด");
+
+  // การศึกษา / อาชีพ
+  if (user.educationID || user.career_id) score += 10;
+  else rec.push("เพิ่มข้อมูลอาชีพหรือระดับการศึกษา");
+
+  // เป้าหมาย / ความชอบ
+  if (user.goalID && user.interestGenderID) score += 10;
+  else rec.push("เลือกเป้าหมายความสัมพันธ์");
+
+  if (prefCount >= 3) score += 5;
+  else rec.push("เลือกความชอบอย่างน้อย 3 ข้อ");
+
+  // Bio
+  if (user.bio && user.bio.length >= 20) score += 15;
+  else rec.push("เขียนคำแนะนำตัว (Bio) ให้ยาวขึ้น");
+
+  // ความสนใจ
+  if (prefCount >= 3) score += 10;
+  else rec.push("เลือกความสนใจอย่างน้อย 3 ข้อ");
+  
+
+  return { score, rec };
+}
 
 // กำหนดระยะเวลาว่ากี่นาทีหมดเวลา
 function signAccess(payload) {
@@ -1877,6 +1925,75 @@ app.post('/api_v2/unblock-chat', (req, res) => {
 });
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// API ดูคะแนน profile completeness และคำแนะนำ
+app.get("/api_v2/profile/recommend/:userId", (req, res) => {
+  const userId = req.params.userId;
+
+  db.query("SELECT * FROM user WHERE UserID = ?", [userId], (err, users) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Query error (user)" });
+    }
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = users[0];
+
+    // นับ location ที่ผู้ใช้เคยอัปเดต
+    db.query("SELECT COUNT(*) AS cnt FROM location WHERE userID = ?", [userId], (err, locRows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Query error (location)" });
+      }
+
+      const locCount = locRows[0].cnt;
+
+      // นับจำนวน preferences ที่ผู้ใช้เลือก
+      db.query("SELECT COUNT(*) AS cnt FROM userpreferences WHERE userID = ?", [userId], (err, prefRows) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).json({ error: "Query error (preferences)" });
+        }
+
+        const prefCount = prefRows[0].cnt;
+
+        // คำนวณคะแนน
+        const { score, rec } = calculateProfileScore(user, prefCount, locCount);
+
+        
+        console.log("==== PROFILE DEBUG ====");
+        console.log({
+        userID: userId,
+        imageFile: !!user.imageFile,
+        nickname: !!user.nickname,
+        is_verified: !!user.is_verified,
+        hasBasicInfo: !!(user.firstname && user.lastname && user.GenderID && user.DateBirth),
+        home: !!user.home,
+        province: !!user.province,
+        locCount,
+        educationID: !!user.educationID,
+        career_id: !!user.career_id,
+        goalID: !!user.goalID,
+        interestGenderID: !!user.interestGenderID,
+        prefCount,
+        bioLength: user.bio ? user.bio.length : 0
+        });
+        console.log("======================");
+
+        // ส่งผลลัพธ์กลับ
+        res.json({
+          user_id: userId,
+          score: score,
+          completeness: `${score}%`,
+          recommendations: rec,
+        });
+      });
+    });
+  });
+});
 
 
 
