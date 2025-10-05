@@ -16,7 +16,8 @@
     "express-rate-limit": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "mysql2": "^3.15.1"
+    "mysql2": "^3.15.1",
+    "recharts": "^3.2.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

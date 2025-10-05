@@ -13,6 +13,7 @@ import LogoImage from './assets/logofinlove.png';
 
 const defaultTheme = createTheme();
 
+
 export default function SignInUser() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,8 +23,7 @@ export default function SignInUser() {
     e.preventDefault();
 
     try {
-      const response = await axios.post(process.env.REACT_APP_BASE_URL + '/login',
-        console.log(process.env.REACT_APP_BASE_URL),
+      const response = await axios.post(process.env.REACT_APP_BASE_URL+'/login',
         {
           username,
           password
