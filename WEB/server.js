@@ -16,6 +16,8 @@ const privateKey = fs.readFileSync('privatekey.pem', 'utf8');
 const certificate = fs.readFileSync('certificate.pem', 'utf8');
 const credentials = { key: privateKey, cert: certificate };
 
+const statsRouter = require('./routes/stats');
+
 // Import CORS library
 const cors = require('cors');
 
@@ -41,6 +43,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use(fileupload());
+app.use('/api/stats', require('./routes/stats'));
+
 
 const rateLimit = require('express-rate-limit');
 
@@ -100,8 +104,6 @@ function query(sql, params) {
         });
     });
 }
-
-
 
 
 ////////////////////////////////////////////////////////////////////////// Login ////////////////////////////////////////////////////////////////////////////////////

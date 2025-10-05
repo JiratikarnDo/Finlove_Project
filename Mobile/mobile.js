@@ -202,7 +202,7 @@ app.post('/api_v2/login', (req, res) => {
             message: "บัญชียังไม่ได้ยืนยัน OTP ใหม่ถูกส่งไปยังอีเมลแล้ว"
           });
         });
-        return; // ต้อง return ตรงนี้กัน response ซ้ำ
+        return;
       }
 
       // 4) ถ้าทุกอย่างโอเค → ออก token ให้ login ได้

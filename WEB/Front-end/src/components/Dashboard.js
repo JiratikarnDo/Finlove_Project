@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   Typography, Avatar, Button, ButtonGroup, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Box,
-  Container, Grid, Card, CardContent, Drawer, List, ListItem, ListItemIcon, ListItemText, Snackbar, Alert
+  Container, Grid, Card, CardContent, Drawer, List, ListItem, ListItemIcon, ListItemText, Snackbar, Alert, Select, MenuItem, TextField
 } from '@mui/material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { People as PeopleIcon, Settings as SettingsIcon, ExitToApp as ExitToAppIcon } from '@mui/icons-material';
+
+// === NEW: กราฟ
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 
 const url = process.env.REACT_APP_BASE_URL;
 const token = localStorage.getItem('token');
@@ -17,90 +20,65 @@ export default function Dashboard() {
   const [totalUsers, setTotalUsers] = useState(0);
   const [totalReportedUsers, setTotalReportedUsers] = useState(0);
 
+  // === NEW: ตัวกรองช่วงเวลา + granular
+  const today = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const [dateTo, setDateTo] = useState(iso(today));
+  const [dateFrom, setDateFrom] = useState(iso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)));
+  const [groupBy, setGroupBy] = useState('day');
+  const [series, setSeries] = useState([]);
+
   useEffect(() => {
-    axios.get(`${url}/stats/total-users`)
-      .then(response => {
-        setTotalUsers(response.data.total_users);
-      })
-      .catch(error => {
-        console.error('Error fetching total users:', error);
-        showNotification('Error fetching total users', 'error');
-      });
+    // totals (รองรับหรือไม่รองรับ query params ก็ไม่พัง)
+    axios.get(`${url}/stats/total-users`, { params: { from: dateFrom, to: dateTo } })
+      .then(r => setTotalUsers(r.data?.total_users ?? 0))
+      .catch(() => setTotalUsers(0));
 
-    axios.get(`${url}/stats/total-reported-users`)
-      .then(response => {
-        setTotalReportedUsers(response.data.total_reported_users);
-      })
-      .catch(error => {
-        console.error('Error fetching total reported users:', error);
-        showNotification('Error fetching total reported users', 'error');
-      });
+    axios.get(`${url}/stats/total-reported-users`, { params: { from: dateFrom, to: dateTo } })
+      .then(r => setTotalReportedUsers(r.data?.total_reported_users ?? 0))
+      .catch(() => setTotalReportedUsers(0));
 
-    axios.get(`${url}/userreport`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    // series สำหรับกราฟ
+    axios.get(`${url}/stats/series`, { params: { from: dateFrom, to: dateTo, groupBy } })
+      .then(r => setSeries(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setSeries([]));
+
+    // ตาราง report เดิม
+    axios.get(`${url}/userreport`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then((response) => {
         const data = response.data;
-        if (Array.isArray(data)) {
-          setUsers(data);
-        } else {
-          setUsers([]);
-        }
+        setUsers(Array.isArray(data) ? data : []);
       })
-      .catch((error) => {
-        console.error('Error fetching users:', error);
-        setUsers([]);
-      });
-  }, []);
+      .catch(() => setUsers([]));
+  }, [dateFrom, dateTo, groupBy]); // <<< update เมื่อช่วงเวลา/ระดับเปลี่ยน
 
-  const showNotification = (message, severity) => {
-    setNotification({ open: true, message, severity });
-  };
-
-  const handleCloseNotification = () => {
-    setNotification({ ...notification, open: false });
-  };
+  const showNotification = (message, severity) => setNotification({ open: true, message, severity });
+  const handleCloseNotification = () => setNotification({ ...notification, open: false });
 
   const handleBanUser = (userID) => {
-    axios.put(`${url}/user/ban/${userID}`, null, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    axios.put(`${url}/user/ban/${userID}`, null, { headers: { 'Authorization': `Bearer ${token}` } })
       .then((response) => {
         if (response.data.status === true) {
           showNotification(response.data.message, 'success');
-          setUsers((prevUsers) => prevUsers.map(user => user.userID === userID ? { ...user, isActive: 0 } : user));
-        } else {
-          showNotification('Failed to suspend user', 'error');
-        }
+          setUsers(prev => prev.map(u => u.userID === userID ? { ...u, isActive: 0 } : u));
+        } else showNotification('Failed to suspend user', 'error');
       })
-      .catch((error) => {
-        showNotification('Error suspending user', 'error');
-        console.error('Error suspending user:', error);
-      });
+      .catch(() => showNotification('Error suspending user', 'error'));
   };
 
   const handleUnbanUser = (userID) => {
-    axios.put(`${url}/user/unban/${userID}`, null, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    axios.put(`${url}/user/unban/${userID}`, null, { headers: { 'Authorization': `Bearer ${token}` } })
       .then((response) => {
         if (response.data.status === true) {
           showNotification(response.data.message, 'success');
-          setUsers((prevUsers) => prevUsers.map(user => user.userID === userID ? { ...user, isActive: 1 } : user));
-        } else {
-          showNotification('Failed to unban user', 'error');
-        }
+          setUsers(prev => prev.map(u => u.userID === userID ? { ...u, isActive: 1 } : u));
+        } else showNotification('Failed to unban user', 'error');
       })
-      .catch((error) => {
-        showNotification('Error unbanning user', 'error');
-        console.error('Error unbanning user:', error);
-      });
+      .catch(() => showNotification('Error unbanning user', 'error'));
   };
 
   const handleLogout = () => {
-    axios.post(`${url}/logout`, {}, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    axios.post(`${url}/logout`, {}, { headers: { 'Authorization': `Bearer ${token}` } })
       .then((response) => {
         if (response.data.status === true) {
           localStorage.removeItem('token');
@@ -110,10 +88,7 @@ export default function Dashboard() {
           window.location.reload();
         }
       })
-      .catch((error) => {
-        showNotification('Error during logout', 'error');
-        console.error('Error during logout:', error);
-      });
+      .catch(() => showNotification('Error during logout', 'error'));
   };
 
   const drawerWidth = 240;
@@ -124,6 +99,12 @@ export default function Dashboard() {
     { text: 'เพิ่มความชอบ', action: () => navigate('/managepreferences'), icon: <SettingsIcon /> },
     { text: 'ออกจากระบบ', action: handleLogout, icon: <ExitToAppIcon /> }
   ];
+
+  // ป้องกันกรณีเลือก to < from
+  const clampTo = (v) => {
+    if (v < dateFrom) setDateFrom(v);
+    setDateTo(v);
+  };
 
   return (
     <Box sx={{ display: 'flex', backgroundColor: '#F8E9F0' }}>
@@ -155,11 +136,7 @@ export default function Dashboard() {
                   borderRadius: '10px',
                   border: '2px solid black',
                   marginBottom: '10px',
-                  '&:hover': {
-                    backgroundColor: '#f8e9f0',
-                    color: '#fff',
-                    borderColor: '#ff69b4',
-                  },
+                  '&:hover': { backgroundColor: '#f8e9f0', color: '#fff', borderColor: '#ff69b4' },
                 }}
               >
                 <ListItemIcon sx={{ color: '#000' }}>{item.icon}</ListItemIcon>
@@ -173,6 +150,34 @@ export default function Dashboard() {
       {/* Main Content */}
       <Box component="main" sx={{ flexGrow: 1, padding: 3, backgroundColor: '#F8E9F0', minHeight: '100vh' }}>
         <Container maxWidth="lg" sx={{ mt: 4 }}>
+
+          {/* === NEW: แถบตัวกรองช่วงเวลา / ระดับ === */}
+          <Card sx={{ mb: 3, borderRadius: '10px' }}>
+            <CardContent sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Typography variant="h6" sx={{ mr: 1 }}>ช่วงเวลา</Typography>
+              <TextField
+                label="จาก"
+                type="date"
+                size="small"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+              <TextField
+                label="ถึง"
+                type="date"
+                size="small"
+                value={dateTo}
+                onChange={(e) => clampTo(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+              <Select size="small" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+                <MenuItem value="day">รายวัน</MenuItem>
+                <MenuItem value="week">รายสัปดาห์</MenuItem>
+              </Select>
+            </CardContent>
+          </Card>
+
           {/* Summary Section */}
           <Grid container spacing={4}>
             <Grid item xs={12} md={6}>
@@ -194,7 +199,35 @@ export default function Dashboard() {
             </Grid>
           </Grid>
 
-          {/* User Report Table */}
+          {/* === NEW: กราฟแนวโน้มสั้นๆ === */}
+          <Box sx={{ mt: 4 }}>
+            <Card sx={{ backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 8px rgba(0,0,0,0.1)', padding: 2 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>แนวโน้มผู้ใช้ใหม่ / ผู้ถูกรีพอร์ต</Typography>
+                {series.length > 0 ? (
+                  <Box sx={{ width: '100%', height: 280 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={series}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Line type="monotone" dataKey="users" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="reports" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" sx={{ opacity: 0.7 }}>
+                    ยังไม่มีข้อมูลในช่วงที่เลือก
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+          </Box>
+
+          {/* User Report Table (ของเดิม) */}
           <Box sx={{ mt: 4 }}>
             <Typography variant="h6" gutterBottom>ผู้ใช้ถูกระงับใหม่</Typography>
             <TableContainer component={Paper} sx={{ backgroundColor: '#fff', borderRadius: '10px', boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)', border: '2px solid black' }}>
@@ -244,12 +277,8 @@ export default function Dashboard() {
             </TableContainer>
           </Box>
 
-          {/* Notification Snackbar */}
-          <Snackbar
-            open={notification.open}
-            autoHideDuration={6000}
-            onClose={handleCloseNotification}
-          >
+          {/* Notification */}
+          <Snackbar open={notification.open} autoHideDuration={6000} onClose={handleCloseNotification}>
             <Alert onClose={handleCloseNotification} severity={notification.severity}>
               {notification.message}
             </Alert>
