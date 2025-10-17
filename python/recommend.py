@@ -236,16 +236,44 @@ def recommend(id):
     recommended_users['distance'] = recommended_users['UserID'].map(distance_map)
 
     # เติม URL รูปภาพ
-    for idx, user in recommended_users.iterrows():
-        if user['imageFile']:
-            recommended_users.at[idx, 'imageFile'] = f"http://{request.host}/ai_v2/user/{user['imageFile']}"
+    # --- สร้าง URL รูปอย่างปลอดภัย โดยไม่เขียนทับค่าดิบ imageFile ---
+    host = request.host_url.rstrip('/')
+
+    def to_public_url(val):
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return None
+        s = str(val).strip()
+        # ถ้าเป็น URL เต็มอยู่แล้ว
+        if s.startswith('http://') or s.startswith('https://'):
+            return s
+        # ถ้าเป็น path ที่ขึ้นต้นด้วย endpoint รูปอยู่แล้ว
+        if s.startswith('/ai_v2/user/'):
+            return f"{host}{s}"
+        # อย่างอื่นถือว่าเป็นชื่อไฟล์ -> sanitize ด้วย basename
+        return f"{host}/ai_v2/user/{os.path.basename(s)}"
+
+    # คอลัมน์ใหม่ (อย่าเขียนทับ imageFile เดิม)
+    recommended_users['imageUrl'] = recommended_users['imageFile'].apply(to_public_url)
+
+    # log ตรวจสอบ mapping (ดีมากเวลาหาสาเหตุ)
+    print("==== RECOMMENDED (UserID → RAW imageFile / URL) ====")
+    try:
+        print(recommended_users[['UserID','imageFile','imageUrl']].to_string(index=False))
+        dups = (recommended_users
+            .groupby('imageUrl')['UserID'].nunique()
+            .reset_index(name='cnt').query('cnt > 1'))
+        print("DUP imageUrl used by many users =>", dups.to_dict(orient='records'))
+    except Exception as _:
+        pass
+
+    # เตรียม payload โดย map 'imageUrl' -> 'imageFile' ให้แอปรับได้เหมือนเดิม
+    payload = (recommended_users[[
+        'UserID', 'nickname', 'imageUrl', 'verify', 'dateBirth', 'distance',
+        'sharedPreferences', 'allPreferences', 'source'
+    ]].rename(columns={'imageUrl': 'imageFile'}).to_dict(orient='records'))
 
     conn.close()
-
-    return jsonify(recommended_users[[
-        'UserID', 'nickname', 'imageFile', 'verify', 'dateBirth', 'distance',
-        'sharedPreferences', 'allPreferences', 'source'
-    ]].to_dict(orient='records')), 200
+    return jsonify(payload), 200    
 
 
 

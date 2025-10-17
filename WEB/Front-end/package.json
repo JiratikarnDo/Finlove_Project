@@ -26,7 +26,7 @@
     "nodemailer": "^6.9.16",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2",
+    "react-router-dom": "^6.30.1",
     "react-scripts": "^5.0.1",
     "recharts": "^2.13.0",
     "web-vitals": "^2.1.4"
