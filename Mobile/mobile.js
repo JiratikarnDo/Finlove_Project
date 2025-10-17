@@ -29,7 +29,7 @@ fs.mkdirSync(USER_ASSETS_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, USER_ASSETS_DIR),
-  filename: (req, file, cb) => cb(null, file.originalname),
+  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname).toLowerCase()}`)
 });
 
 const upload = multer({ storage: storage });
@@ -658,6 +658,21 @@ app.get('/api_v2/user/image/:filename', function(req, res) {
     });
 });
 
+// alias ให้ตรงกับ URL ที่ฝั่งแอปเรียก: .../ai_v2/user/<filename>?u=...
+app.get('/ai_v2/user/:filename', (req, res) => {
+  const file = path.basename(req.params.filename);
+  const fp = path.join(USER_ASSETS_DIR, file);
+
+  // ช่วย cache รูป (จะไม่กระทบ query ?u= ที่คุณใส่ไว้ bust cache)
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+
+  res.sendFile(fp, (err) => {
+    if (err && !res.headersSent) {
+      res.status(err.code === 'ENOENT' ? 404 : 500).json({ error: 'Image not found' });
+    }
+  });
+});
+
 
 // API View Profile
 app.get('/api_v2/user/:id', async function (req, res) {
@@ -998,10 +1013,7 @@ app.put('/api_v2/user/update/:id', upload.single('image'), async function (req, 
         if (!currentImageFile) {
             currentImageFile = currentuser.imageFile || '';
         } else {
-            const ext = path.extname(req.file.originalname);
-            const newFileName = `${uuidv4()}${ext}`;
-            fs.renameSync(req.file.path, path.join('assets/user', newFileName));
-            currentImageFile = newFileName;
+            currentImageFile = req.file.filename;
 
             if (currentuser.imageFile && currentuser.imageFile !== '') {
                 const oldImagePath = path.join(__dirname, 'web', 'front-end', 'assets', 'employee', currentuser.imageFile);
